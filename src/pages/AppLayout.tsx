@@ -1,14 +1,17 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabase';
 import { Community, Post } from '../types';
 import { timeAgo } from '../utils/timeAgo';
 
 export default function AppLayout() {
+  const navigate = useNavigate();
   const [nickname, setNickname] = useState<string>('');
   const [showNicknameModal, setShowNicknameModal] = useState(false);
   const [nicknameInput, setNicknameInput] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showMessageModal, setShowMessageModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   
   const [view, setView] = useState<'communities' | 'chat' | 'create'>('communities');
   const [communities, setCommunities] = useState<Community[]>([]);
@@ -104,24 +107,35 @@ export default function AppLayout() {
   };
 
   const sendMessage = async () => {
-    if (!newMessage.trim()) {
-      alert('Please enter a message');
-      return;
-    }
-    if (!currentCommunity) return;
-    const { error } = await supabase.from('posts').insert([{
+    if (!newMessage.trim() || !currentCommunity) return;
+    
+    const newMsg = {
       community_id: currentCommunity.id,
       title: newMessage.trim().slice(0, 100),
       content: newMessage.trim(),
-      nickname: nickname
-    }]);
-    if (error) {
-      alert('Failed to send message');
-      return;
-    }
+      nickname: nickname,
+      created_at: new Date().toISOString()
+    };
+
+    // Optimistically add message
+    setMessages(prev => [...prev, { ...newMsg, id: Date.now() } as Post]);
     setNewMessage('');
     setShowMessageModal(false);
+
+    // Send to database
+    const { error } = await supabase.from('posts').insert([newMsg]);
+    if (error) {
+      alert('Failed to send message');
+      // Reload messages on error
+      const { data } = await supabase.from('posts').select('*').eq('community_id', currentCommunity.id).order('created_at', { ascending: true });
+      setMessages(data || []);
+    }
   };
+
+  const filteredCommunities = communities.filter(c => 
+    c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    c.description.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   if (showNicknameModal) {
     return (
@@ -179,7 +193,16 @@ export default function AppLayout() {
             <span className="text-2xl md:text-3xl">🎓</span>
             <span className="text-lg md:text-xl font-bold">CampConnect</span>
           </div>
-          <div className="ml-auto text-xs md:text-sm text-gray-400 bg-[#0f172a] px-3 py-1.5 rounded-lg">@{nickname}</div>
+          <div className="ml-auto flex items-center gap-3">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search communities..."
+              className="hidden md:block px-4 py-2 bg-[#0f172a] border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:border-green-500"
+            />
+            <div className="text-xs md:text-sm text-gray-400 bg-[#0f172a] px-3 py-1.5 rounded-lg">@{nickname}</div>
+          </div>
         </div>
       </header>
 
@@ -197,15 +220,26 @@ export default function AppLayout() {
         <main className="flex-1 p-4 md:p-8 max-w-4xl mx-auto w-full pb-24">
           {view === 'communities' && (
             <div>
-              <h2 className="text-2xl md:text-3xl font-bold mb-6">All Communities</h2>
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl md:text-3xl font-bold">All Communities</h2>
+              </div>
+              <div className="md:hidden mb-4">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search communities..."
+                  className="w-full px-4 py-2 bg-[#1e293b] border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:border-green-500"
+                />
+              </div>
               <div className="space-y-4">
-                {communities.length === 0 ? (
+                {filteredCommunities.length === 0 ? (
                   <div className="text-center py-20 text-gray-500">
-                    <p className="text-lg mb-2">No communities yet</p>
-                    <p className="text-sm">Create the first one!</p>
+                    <p className="text-lg mb-2">{searchQuery ? 'No communities found' : 'No communities yet'}</p>
+                    <p className="text-sm">{searchQuery ? 'Try a different search' : 'Create the first one!'}</p>
                   </div>
                 ) : (
-                  communities.map((community) => (
+                  filteredCommunities.map((community) => (
                     <div key={community.id} onClick={() => openCommunity(community)} className="bg-[#1e293b] p-4 md:p-6 rounded-xl cursor-pointer hover:bg-[#2d3d52] transition border border-gray-800">
                       <h3 className="text-lg md:text-xl font-semibold text-green-400 mb-2">{community.name}</h3>
                       <p className="text-sm md:text-base text-gray-400 mb-3">{community.description}</p>
@@ -228,8 +262,8 @@ export default function AppLayout() {
                 {messages.length === 0 ? (
                   <div className="text-center py-12 text-gray-500">No messages yet. Start the conversation!</div>
                 ) : (
-                  messages.map((message) => (
-                    <div key={message.id} className="bg-[#1e293b] p-4 rounded-xl border border-gray-800">
+                  messages.map((message, idx) => (
+                    <div key={message.id || idx} className="bg-[#1e293b] p-4 rounded-xl border border-gray-800">
                       <div className="flex items-start justify-between mb-2">
                         <span className="font-semibold text-green-400">@{message.nickname}</span>
                         <span className="text-xs text-gray-500">{timeAgo(message.created_at)}</span>

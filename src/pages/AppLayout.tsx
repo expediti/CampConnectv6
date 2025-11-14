@@ -8,6 +8,7 @@ export default function AppLayout() {
   const [showNicknameModal, setShowNicknameModal] = useState(false);
   const [nicknameInput, setNicknameInput] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showCommentModal, setShowCommentModal] = useState(false);
   
   const [view, setView] = useState<'communities' | 'community' | 'post' | 'create'>('communities');
   const [communities, setCommunities] = useState<Community[]>([]);
@@ -179,6 +180,7 @@ export default function AppLayout() {
     }
 
     setNewComment('');
+    setShowCommentModal(false);
     openPost(currentPost);
   };
 
@@ -210,6 +212,33 @@ export default function AppLayout() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#0a0a0a] to-[#1a1a2e] text-white">
+      {/* Comment Modal */}
+      {showCommentModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => setShowCommentModal(false)}>
+          <div className="bg-[#1e293b] p-6 rounded-2xl max-w-lg w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">Add a Comment</h3>
+              <button onClick={() => setShowCommentModal(false)} className="text-gray-400 hover:text-white text-2xl">×</button>
+            </div>
+            <textarea
+              value={newComment}
+              onChange={(e) => setNewComment(e.target.value)}
+              placeholder="Write your comment..."
+              maxLength={500}
+              className="w-full px-4 py-3 bg-[#0f172a] border border-gray-700 rounded-xl text-white resize-none focus:outline-none focus:border-green-500 mb-4"
+              rows={5}
+              autoFocus
+            />
+            <button
+              onClick={createComment}
+              className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl transition"
+            >
+              Post Comment
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-[#1e293b] border-b border-gray-800 px-4 md:px-6 py-4">
         <div className="flex items-center gap-4">
@@ -233,7 +262,7 @@ export default function AppLayout() {
           )}
 
           {/* Logo */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 cursor-pointer" onClick={goHome}>
             <span className="text-2xl md:text-3xl">🎓</span>
             <span className="text-lg md:text-xl font-bold">CampConnect</span>
           </div>
@@ -282,7 +311,7 @@ export default function AppLayout() {
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 p-4 md:p-8 max-w-4xl mx-auto w-full">
+        <main className="flex-1 p-4 md:p-8 max-w-4xl mx-auto w-full pb-24">
           {/* Communities List */}
           {view === 'communities' && (
             <div>
@@ -349,37 +378,18 @@ export default function AppLayout() {
           {view === 'post' && currentPost && (
             <div>
               <button
-                onClick={() => { setView('community'); setCurrentPost(null); }}
+                onClick={goHome}
                 className="mb-4 px-4 py-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition text-sm md:text-base flex items-center gap-2"
               >
-                ← Back to Threads
+                ← Back to Home
               </button>
 
               <div className="bg-[#1e293b] p-4 md:p-6 rounded-xl mb-6 border border-gray-800">
-                <h2 className="text-xl md:text-2xl font-bold mb-3">{currentPost.title}</h2>
+                <h2 className="text-xl md:text-2xl font-bold mb-3 text-green-400">{currentPost.title}</h2>
                 <p className="text-sm md:text-base text-gray-300 mb-4">{currentPost.content}</p>
                 <div className="text-xs md:text-sm text-gray-500">
                   by @{currentPost.nickname} • {timeAgo(currentPost.created_at)}
                 </div>
-              </div>
-
-              {/* Comment Form */}
-              <div className="bg-[#1e293b] p-4 md:p-6 rounded-xl mb-6 border border-gray-800">
-                <h3 className="text-base md:text-lg font-semibold mb-4">Add a Comment</h3>
-                <textarea
-                  value={newComment}
-                  onChange={(e) => setNewComment(e.target.value)}
-                  placeholder="Write your comment..."
-                  maxLength={500}
-                  className="w-full px-4 py-3 bg-[#0f172a] border border-gray-700 rounded-xl text-white resize-none focus:outline-none focus:border-green-500 mb-4 text-sm md:text-base"
-                  rows={4}
-                />
-                <button
-                  onClick={createComment}
-                  className="w-full md:w-auto px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition"
-                >
-                  Comment
-                </button>
               </div>
 
               {/* Comments List */}
@@ -398,6 +408,16 @@ export default function AppLayout() {
                   ))
                 )}
               </div>
+
+              {/* Floating Comment Button */}
+              <button
+                onClick={() => setShowCommentModal(true)}
+                className="fixed bottom-6 right-6 bg-green-600 hover:bg-green-700 text-white p-4 rounded-full shadow-lg transition-all hover:scale-110 z-40"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                </svg>
+              </button>
             </div>
           )}
 

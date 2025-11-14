@@ -51,6 +51,8 @@ export default function AppLayout() {
       return;
     }
 
+    console.log('🔴 Setting up real-time...');
+    
     const channel = supabase
       .channel(`community-${currentCommunity.id}-${Date.now()}`)
       .on(
@@ -62,6 +64,7 @@ export default function AppLayout() {
           filter: `community_id=eq.${currentCommunity.id}`
         },
         (payload) => {
+          console.log('🟢 NEW MESSAGE:', payload.new);
           const newPost = payload.new as Post;
           setMessages((prev) => {
             const exists = prev.some(m => m.id === newPost.id);
@@ -70,7 +73,9 @@ export default function AppLayout() {
           });
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('📡 Real-time status:', status);
+      });
 
     realtimeChannelRef.current = channel;
 
@@ -172,9 +177,11 @@ export default function AppLayout() {
       .single();
 
     if (error) {
+      console.error('❌ Error:', error);
       alert('Failed to send message');
       setMessages(prev => prev.filter(m => m.id !== tempId));
     } else {
+      console.log('✅ Sent:', data);
       setMessages(prev => prev.map(m => m.id === tempId ? data : m));
     }
   };
@@ -251,7 +258,7 @@ export default function AppLayout() {
         <main className="flex-1 flex flex-col overflow-hidden">
           {view === 'communities' && (
             <div className="p-4 md:p-8 overflow-y-auto">
-              <div className="max-w-4xl mx-auto">
+              <div className="max-w-4xl mx-auto w-full">
                 <div className="flex justify-between items-center mb-6">
                   <h2 className="text-2xl md:text-3xl font-bold">All Communities</h2>
                 </div>
@@ -299,19 +306,18 @@ export default function AppLayout() {
                   <div className="text-center py-12 text-gray-500">No messages yet. Start the conversation!</div>
                 ) : (
                   messages.map((message, idx) => (
-                    <div key={message.id || idx} className="bg-[#1e293b] p-4 rounded-xl border border-gray-800 animate-fadeIn">
-                      <div className="flex items-start justify-between mb-2">
+                    <div key={message.id || idx} className="bg-[#1e293b] p-4 rounded-xl border border-gray-800 animate-fadeIn w-full">
+                      <div className="flex items-start justify-between mb-2 gap-2 flex-wrap">
                         <span className="font-semibold text-green-400">@{message.nickname}</span>
                         <span className="text-xs text-gray-500">{timeAgo(message.created_at)}</span>
                       </div>
-                      <p className="text-sm md:text-base text-gray-300 whitespace-pre-wrap">{message.content}</p>
+                      <p className="text-sm md:text-base text-gray-300 whitespace-pre-wrap break-words w-full overflow-hidden">{message.content}</p>
                     </div>
                   ))
                 )}
                 <div ref={messagesEndRef} />
               </div>
               
-              {/* WHATSAPP STYLE INPUT AT BOTTOM */}
               <div className="border-t border-gray-800 bg-[#1e293b] p-4 shrink-0">
                 <div className="flex gap-3 items-end max-w-4xl mx-auto">
                   <textarea

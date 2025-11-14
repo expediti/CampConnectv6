@@ -42,7 +42,6 @@ const AppLayout: React.FC = () => {
     const [comments, setComments] = useState<Comment[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
-    const [showCreatePostForm, setShowCreatePostForm] = useState(false);
 
     const [nickname, setNickname] = useState<string | null>(null);
     const [isNicknameModalOpen, setIsNicknameModalOpen] = useState(false);
@@ -95,9 +94,6 @@ const AppLayout: React.FC = () => {
         if (view === 'communities') {
             loadCommunities();
         }
-        if (view !== 'community') {
-            setShowCreatePostForm(false);
-        }
     }, [view, loadCommunities]);
 
     useEffect(() => {
@@ -127,11 +123,29 @@ const AppLayout: React.FC = () => {
 
     const handleCreateCommunity = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!formState.communityName) { alert('Please enter a community name'); return; }
+        if (!formState.communityName.trim()) { alert('Please enter a community name'); return; }
+        if (!nickname) { alert('Nickname not found, please refresh.'); return; }
+
         try {
-            const { error } = await supabase.from('communities').insert([{ name: formState.communityName, description: formState.communityDesc || 'No description' }]);
-            if (error) throw error;
-            setFormState(prev => ({ ...prev, communityName: '', communityDesc: '' }));
+            const { data: communityData, error: communityError } = await supabase
+                .from('communities')
+                .insert([{ name: formState.communityName, description: formState.communityDesc || 'No description' }])
+                .select()
+                .single();
+
+            if (communityError) throw communityError;
+
+            if (formState.postTitle.trim() && communityData) {
+                const { error: postError } = await supabase.from('posts').insert([{ 
+                    community_id: communityData.id, 
+                    title: formState.postTitle.trim(), 
+                    content: formState.postContent.trim() || '', 
+                    nickname: nickname 
+                }]);
+                if (postError) throw postError;
+            }
+            
+            setFormState({ communityName: '', communityDesc: '', postTitle: '', postContent: '', commentText: '' });
             alert('Community created!');
             setView('communities');
         } catch (error: any) { alert('Error: ' + error.message); }
@@ -140,7 +154,6 @@ const AppLayout: React.FC = () => {
     const openCommunity = async (community: Community) => {
         setLoading(true);
         setCurrentCommunity(community);
-        setShowCreatePostForm(false);
         try {
             const { data, error } = await supabase.from('posts').select('*').eq('community_id', community.id).order('created_at', { ascending: false });
             if (error) throw error;
@@ -153,28 +166,6 @@ const AppLayout: React.FC = () => {
             setCurrentCommunity(prev => prev ? { ...prev, posts: postsWithCounts } : null);
             setView('community');
         } catch (error) { console.error('Error:', error); } finally { setLoading(false); }
-    };
-    
-    const doCreatePost = async () => {
-        if (!formState.postTitle || !currentCommunity || !nickname) return;
-        try {
-            const { error } = await supabase.from('posts').insert([{ community_id: currentCommunity.id, title: formState.postTitle, content: formState.postContent || '', nickname: nickname }]);
-            if (error) throw error;
-            setFormState(prev => ({ ...prev, postTitle: '', postContent: '' }));
-            setShowCreatePostForm(false);
-            await openCommunity(currentCommunity); // Refresh posts
-        } catch (error: any) { alert('Error: ' + error.message); }
-    };
-    
-    const handleCreatePost = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!formState.postTitle) { alert('Please enter a post title'); return; }
-        if (!nickname) {
-            setPendingAction(() => doCreatePost);
-            setIsNicknameModalOpen(true);
-        } else {
-            await doCreatePost();
-        }
     };
     
     const openPost = async (post: Post) => {
@@ -236,6 +227,11 @@ const AppLayout: React.FC = () => {
                             <form onSubmit={handleCreateCommunity}>
                                 <input type="text" name="communityName" value={formState.communityName} onChange={handleInputChange} className="w-full p-4 bg-gray-900 border border-gray-700 rounded-lg text-white text-base mb-4 focus:ring-2 focus:ring-green-500 outline-none" placeholder="Community Name" maxLength={50} />
                                 <textarea name="communityDesc" value={formState.communityDesc} onChange={handleInputChange} className="w-full p-4 bg-gray-900 border border-gray-700 rounded-lg text-white text-base mb-4 h-32 resize-none focus:ring-2 focus:ring-green-500 outline-none" placeholder="Description (optional)" maxLength={200}></textarea>
+                                
+                                <h3 className="text-xl font-bold mt-8 mb-4 text-white">Create Initial Thread (Optional)</h3>
+                                <input type="text" name="postTitle" value={formState.postTitle} onChange={handleInputChange} className="w-full p-4 bg-gray-900 border border-gray-700 rounded-lg text-white text-base mb-4 focus:ring-2 focus:ring-green-500 outline-none" placeholder="Thread Title" maxLength={100} />
+                                <textarea name="postContent" value={formState.postContent} onChange={handleInputChange} className="w-full p-4 bg-gray-900 border border-gray-700 rounded-lg text-white text-base mb-4 h-24 resize-none focus:ring-2 focus:ring-green-500 outline-none" placeholder="Thread content..." maxLength={500}></textarea>
+                                
                                 <button type="submit" className="bg-green-500 text-white font-semibold px-6 py-3 rounded-lg hover:bg-green-600 transition-colors">Create Community</button>
                             </form>
                         </div>
@@ -252,26 +248,18 @@ const AppLayout: React.FC = () => {
                                 <h2 className="text-3xl font-bold">{currentCommunity.name}</h2>
                                 <p className="text-gray-400 mt-1">{currentCommunity.description}</p>
                             </div>
-                            <button 
-                                onClick={() => setShowCreatePostForm(prev => !prev)}
-                                className="flex-shrink-0 flex items-center justify-center gap-2 bg-green-500 text-white font-semibold px-4 py-2 rounded-lg hover:bg-green-600 transition-colors w-full md:w-auto"
-                            >
-                                <PlusIcon /> <span>{showCreatePostForm ? 'Cancel' : 'New Post'}</span>
-                            </button>
                         </div>
                         
-                        {showCreatePostForm && (
-                             <div className="bg-gray-800 p-6 rounded-2xl mb-8">
-                                <form onSubmit={handleCreatePost}>
-                                    <input type="text" name="postTitle" value={formState.postTitle} onChange={handleInputChange} className="w-full p-3 bg-gray-900 border border-gray-700 rounded-lg text-white mb-3 focus:ring-2 focus:ring-green-500 outline-none" placeholder="Post Title" maxLength={100} />
-                                    <textarea name="postContent" value={formState.postContent} onChange={handleInputChange} className="w-full p-3 bg-gray-900 border border-gray-700 rounded-lg text-white mb-3 h-24 resize-none focus:ring-2 focus:ring-green-500 outline-none" placeholder="What's on your mind?" maxLength={500}></textarea>
-                                    <button type="submit" className="bg-green-500 text-white font-semibold px-5 py-2 rounded-lg hover:bg-green-600 transition-colors">Create Post</button>
-                                </form>
-                            </div>
-                        )}
-
+                        <h3 className="text-lg md:text-xl font-bold mb-4 text-white">All Threads</h3>
                         <div className="space-y-4">
-                            {currentCommunity.posts?.length ? currentCommunity.posts.map(p => <PostCard key={p.id} post={p} onClick={() => openPost(p)} />) : <div className="text-center text-gray-500 py-10">No posts yet. Be the first!</div>}
+                            {currentCommunity.posts?.length ? (
+                                currentCommunity.posts.map(p => <PostCard key={p.id} post={p} onClick={() => openPost(p)} />)
+                            ) : (
+                                <div className="text-center py-20 text-gray-500">
+                                    <p className="text-lg mb-2">No threads yet</p>
+                                    <p className="text-sm">Create a community with a thread to get started!</p>
+                                </div>
+                            )}
                         </div>
                     </div>
                 );

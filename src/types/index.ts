@@ -14,10 +14,12 @@ export interface Post {
     title: string;
     content: string;
     nickname: string;
+    // Fix: Add missing properties to support comments functionality.
     commentsCount?: number;
     comments?: Comment[];
 }
 
+// Fix: Add missing Comment interface which was causing an import error.
 export interface Comment {
     id: number;
     created_at: string;

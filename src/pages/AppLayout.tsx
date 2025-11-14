@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabase';
 import { Community, Post } from '../types';
@@ -6,6 +6,8 @@ import { timeAgo } from '../utils/timeAgo';
 
 export default function AppLayout() {
   const navigate = useNavigate();
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  
   const [nickname, setNickname] = useState<string>('');
   const [showNicknameModal, setShowNicknameModal] = useState(false);
   const [nicknameInput, setNicknameInput] = useState('');
@@ -22,6 +24,11 @@ export default function AppLayout() {
   const [newCommunityDesc, setNewCommunityDesc] = useState('');
   const [newMessage, setNewMessage] = useState('');
 
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
   useEffect(() => {
     const savedNickname = localStorage.getItem('campconnect_nickname');
     if (savedNickname) {
@@ -35,6 +42,7 @@ export default function AppLayout() {
     if (nickname) loadCommunities();
   }, [nickname]);
 
+  // Real-time subscription
   useEffect(() => {
     if (currentCommunity && view === 'chat') {
       const channel = supabase
@@ -42,10 +50,20 @@ export default function AppLayout() {
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'posts', filter: `community_id=eq.${currentCommunity.id}` },
-          (payload) => setMessages(prev => [...prev, payload.new as Post])
+          (payload) => {
+            const newPost = payload.new as Post;
+            setMessages(prev => {
+              // Check if message already exists (to avoid duplicates)
+              if (prev.some(m => m.id === newPost.id)) return prev;
+              return [...prev, newPost];
+            });
+          }
         )
         .subscribe();
-      return () => { supabase.removeChannel(channel); };
+      
+      return () => {
+        supabase.removeChannel(channel);
+      };
     }
   }, [currentCommunity, view]);
 
@@ -109,7 +127,9 @@ export default function AppLayout() {
   const sendMessage = async () => {
     if (!newMessage.trim() || !currentCommunity) return;
     
-    const newMsg = {
+    const tempId = `temp-${Date.now()}`;
+    const newMsg: Post = {
+      id: tempId,
       community_id: currentCommunity.id,
       title: newMessage.trim().slice(0, 100),
       content: newMessage.trim(),
@@ -117,18 +137,30 @@ export default function AppLayout() {
       created_at: new Date().toISOString()
     };
 
-    // Optimistically add message
-    setMessages(prev => [...prev, { ...newMsg, id: Date.now() } as Post]);
+    // Optimistically add message to UI immediately
+    setMessages(prev => [...prev, newMsg]);
     setNewMessage('');
     setShowMessageModal(false);
 
     // Send to database
-    const { error } = await supabase.from('posts').insert([newMsg]);
+    const { data, error } = await supabase
+      .from('posts')
+      .insert([{
+        community_id: currentCommunity.id,
+        title: newMsg.title,
+        content: newMsg.content,
+        nickname: nickname
+      }])
+      .select()
+      .single();
+
     if (error) {
       alert('Failed to send message');
-      // Reload messages on error
-      const { data } = await supabase.from('posts').select('*').eq('community_id', currentCommunity.id).order('created_at', { ascending: true });
-      setMessages(data || []);
+      // Remove temp message on error
+      setMessages(prev => prev.filter(m => m.id !== tempId));
+    } else {
+      // Replace temp message with real one
+      setMessages(prev => prev.map(m => m.id === tempId ? data : m));
     }
   };
 
@@ -186,7 +218,7 @@ export default function AppLayout() {
         </div>
       )}
 
-      <header className="bg-[#1e293b] border-b border-gray-800 px-4 md:px-6 py-4">
+      <header className="bg-[#1e293b] border-b border-gray-800 px-4 md:px-6 py-4 sticky top-0 z-30">
         <div className="flex items-center gap-4">
           <button onClick={() => setSidebarOpen(!sidebarOpen)} className="md:hidden text-2xl hover:text-green-400 transition">☰</button>
           <div className="flex items-center gap-2 cursor-pointer" onClick={goHome}>
@@ -198,8 +230,8 @@ export default function AppLayout() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search communities..."
-              className="hidden md:block px-4 py-2 bg-[#0f172a] border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:border-green-500"
+              placeholder="Search..."
+              className="hidden md:block w-48 px-4 py-2 bg-[#0f172a] border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:border-green-500"
             />
             <div className="text-xs md:text-sm text-gray-400 bg-[#0f172a] px-3 py-1.5 rounded-lg">@{nickname}</div>
           </div>
@@ -208,6 +240,7 @@ export default function AppLayout() {
 
       <div className="flex relative">
         {sidebarOpen && <div className="fixed inset-0 bg-black/50 z-20 md:hidden" onClick={() => setSidebarOpen(false)} />}
+        
         <aside className={`fixed md:static w-64 bg-[#1e293b] border-r border-gray-800 h-[calc(100vh-73px)] p-4 z-30 transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
           <button onClick={goHome} className={`w-full px-4 py-3 rounded-lg mb-2 font-medium transition flex items-center gap-3 ${view === 'communities' ? 'bg-green-600 text-white' : 'bg-transparent text-gray-400 hover:bg-gray-800'}`}>
             <span>🏘️</span> Communities
@@ -258,12 +291,12 @@ export default function AppLayout() {
               </button>
               <h2 className="text-2xl md:text-3xl font-bold mb-2">{currentCommunity.name}</h2>
               <p className="text-sm md:text-base text-gray-400 mb-6">{currentCommunity.description}</p>
-              <div className="flex-1 overflow-y-auto space-y-4 mb-20">
+              <div className="flex-1 overflow-y-auto space-y-4 pb-4">
                 {messages.length === 0 ? (
                   <div className="text-center py-12 text-gray-500">No messages yet. Start the conversation!</div>
                 ) : (
                   messages.map((message, idx) => (
-                    <div key={message.id || idx} className="bg-[#1e293b] p-4 rounded-xl border border-gray-800">
+                    <div key={message.id || idx} className="bg-[#1e293b] p-4 rounded-xl border border-gray-800 animate-fadeIn">
                       <div className="flex items-start justify-between mb-2">
                         <span className="font-semibold text-green-400">@{message.nickname}</span>
                         <span className="text-xs text-gray-500">{timeAgo(message.created_at)}</span>
@@ -272,8 +305,16 @@ export default function AppLayout() {
                     </div>
                   ))
                 )}
+                <div ref={messagesEndRef} />
               </div>
-              <button onClick={() => setShowMessageModal(true)} className="fixed bottom-6 right-6 bg-green-600 hover:bg-green-700 text-white w-14 h-14 rounded-full shadow-2xl transition-all hover:scale-110 z-40 flex items-center justify-center text-2xl" title="Send Message">
+              
+              {/* FLOATING BUTTON - FIXED FOR DESKTOP */}
+              <button 
+                onClick={() => setShowMessageModal(true)} 
+                className="fixed bottom-6 right-6 bg-green-600 hover:bg-green-700 text-white w-14 h-14 rounded-full shadow-2xl transition-all hover:scale-110 flex items-center justify-center text-2xl z-50" 
+                title="Send Message"
+                style={{ position: 'fixed' }}
+              >
                 💬
               </button>
             </div>
@@ -307,6 +348,17 @@ export default function AppLayout() {
           )}
         </main>
       </div>
+
+      {/* Add fade-in animation */}
+      <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fadeIn {
+          animation: fadeIn 0.3s ease-out;
+        }
+      `}</style>
     </div>
   );
 }

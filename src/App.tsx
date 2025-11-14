@@ -1,15 +1,15 @@
-import React, { useState } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import LandingPage from './pages/LandingPage';
 import AppLayout from './pages/AppLayout';
 
-const App: React.FC = () => {
-    const [appStarted, setAppStarted] = useState(false);
-
-    if (!appStarted) {
-        return <LandingPage onStart={() => setAppStarted(true)} />;
-    }
-
-    return <AppLayout />;
-};
-
-export default App;
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/app" element={<AppLayout />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}

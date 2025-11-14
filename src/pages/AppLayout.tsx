@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase } from '../services/supabase';
 import { Community, Post, Comment } from '../types';
-import { timeAgo } from '../lib/timeAgo';
+import { timeAgo } from '../utils/timeAgo';
 
 export default function AppLayout() {
   const [nickname, setNickname] = useState<string>('');

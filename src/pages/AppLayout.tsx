@@ -375,14 +375,17 @@ export default function AppLayout() {
             </div>
           )}
 
-          {/* Post View - WITH FLOATING ICON */}
+          {/* Post View */}
           {view === 'post' && currentPost && (
             <div>
               <button
-                onClick={goHome}
+                onClick={() => {
+                  setView('community');
+                  setCurrentPost(null);
+                }}
                 className="mb-4 px-4 py-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition text-sm md:text-base flex items-center gap-2"
               >
-                ← Back to Home
+                ← Back to Threads
               </button>
 
               <div className="bg-[#1e293b] p-4 md:p-6 rounded-xl mb-6 border border-gray-800">
@@ -396,7 +399,7 @@ export default function AppLayout() {
               <h3 className="text-lg md:text-xl font-semibold mb-4">Comments</h3>
               <div className="space-y-4 mb-20">
                 {comments.length === 0 ? (
-                  <div className="text-center py-12 text-gray-500">No comments yet</div>
+                  <div className="text-center py-12 text-gray-500">No comments yet. Start the conversation!</div>
                 ) : (
                   comments.map((comment) => (
                     <div key={comment.id} className="bg-[#1e293b] p-4 rounded-xl border border-gray-800">
@@ -409,7 +412,7 @@ export default function AppLayout() {
                 )}
               </div>
 
-              {/* FLOATING COMMENT ICON */}
+              {/* FLOATING BUTTON */}
               <button
                 onClick={() => setShowCommentModal(true)}
                 className="fixed bottom-6 right-6 bg-green-600 hover:bg-green-700 text-white w-14 h-14 rounded-full shadow-2xl transition-all hover:scale-110 z-50 flex items-center justify-center text-2xl"

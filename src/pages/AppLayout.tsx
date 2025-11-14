@@ -159,53 +159,38 @@ export default function AppLayout() {
   };
 
   const createComment = async () => {
-    if (!newComment.trim() || !currentPost) {
+    if (!newComment.trim()) {
       alert('Please enter a comment');
       return;
     }
 
-    const tempId = -Date.now();
-    const optimisticComment: Comment = {
-      id: tempId,
-      post_id: currentPost.id,
-      text: newComment.trim(),
-      nickname: nickname,
-      created_at: new Date().toISOString(),
-    };
+    if (!currentPost) return;
 
-    // Add to UI immediately
-    setComments(prevComments => [...prevComments, optimisticComment]);
+    const { error } = await supabase
+      .from('comments')
+      .insert([{
+        post_id: currentPost.id,
+        text: newComment.trim(),
+        nickname: nickname
+      }]);
+
+    if (error) {
+      alert('Failed to post comment');
+      return;
+    }
+
     setNewComment('');
     setShowCommentModal(false);
-
-    try {
-      const { data, error } = await supabase
-        .from('comments')
-        .insert([{
-          post_id: currentPost.id,
-          text: optimisticComment.text,
-          nickname: nickname
-        }])
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      if (data) {
-        // Replace optimistic comment with the real one from the database
-        setComments(prevComments => prevComments.map(c => 
-          c.id === tempId ? data : c
-        ));
-      } else {
-         throw new Error("No data returned from insert operation.");
-      }
-    } catch (error) {
-        // Revert on error
-        alert('Failed to post comment. Please try again.');
-        setComments(prevComments => prevComments.filter(c => c.id !== tempId));
-    }
+    
+    // Reload comments
+    const { data } = await supabase
+      .from('comments')
+      .select('*')
+      .eq('post_id', currentPost.id)
+      .order('created_at', { ascending: true });
+    
+    if (data) setComments(data);
   };
-
 
   if (showNicknameModal) {
     return (
@@ -236,11 +221,11 @@ export default function AppLayout() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#0a0a0a] to-[#1a1a2e] text-white">
       {/* Comment Modal */}
-      {showCommentModal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => setShowCommentModal(false)}>
+      {showCommentModal && view === 'post' && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowCommentModal(false)}>
           <div className="bg-[#1e293b] p-6 rounded-2xl max-w-lg w-full" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">Add a Comment</h3>
+              <h3 className="text-lg font-semibold">Add Comment</h3>
               <button onClick={() => setShowCommentModal(false)} className="text-gray-400 hover:text-white text-2xl">×</button>
             </div>
             <textarea
@@ -265,7 +250,6 @@ export default function AppLayout() {
       {/* Header */}
       <header className="bg-[#1e293b] border-b border-gray-800 px-4 md:px-6 py-4">
         <div className="flex items-center gap-4">
-          {/* Hamburger (Mobile) */}
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className="md:hidden text-2xl hover:text-green-400 transition"
@@ -273,7 +257,6 @@ export default function AppLayout() {
             ☰
           </button>
 
-          {/* Home Button (Shows when not on communities page) */}
           {view !== 'communities' && (
             <button
               onClick={goHome}
@@ -284,13 +267,11 @@ export default function AppLayout() {
             </button>
           )}
 
-          {/* Logo */}
           <div className="flex items-center gap-2 cursor-pointer" onClick={goHome}>
             <span className="text-2xl md:text-3xl">🎓</span>
             <span className="text-lg md:text-xl font-bold">CampConnect</span>
           </div>
 
-          {/* Nickname */}
           <div className="ml-auto text-xs md:text-sm text-gray-400 bg-[#0f172a] px-3 py-1.5 rounded-lg">
             @{nickname}
           </div>
@@ -298,7 +279,6 @@ export default function AppLayout() {
       </header>
 
       <div className="flex relative">
-        {/* Mobile Overlay */}
         {sidebarOpen && (
           <div
             className="fixed inset-0 bg-black/50 z-20 md:hidden"
@@ -306,7 +286,6 @@ export default function AppLayout() {
           />
         )}
 
-        {/* Sidebar */}
         <aside className={`
           fixed md:static
           w-64 bg-[#1e293b] border-r border-gray-800
@@ -333,7 +312,6 @@ export default function AppLayout() {
           </button>
         </aside>
 
-        {/* Main Content */}
         <main className="flex-1 p-4 md:p-8 max-w-4xl mx-auto w-full pb-24">
           {/* Communities List */}
           {view === 'communities' && (
@@ -362,7 +340,7 @@ export default function AppLayout() {
             </div>
           )}
 
-          {/* Community View - ONLY THREAD LIST */}
+          {/* Community View - ONLY THREADS */}
           {view === 'community' && currentCommunity && (
             <div>
               <button
@@ -371,17 +349,13 @@ export default function AppLayout() {
               >
                 ← Back to Communities
               </button>
-              
               <h2 className="text-2xl md:text-3xl font-bold mb-2">{currentCommunity.name}</h2>
               <p className="text-sm md:text-base text-gray-400 mb-8">{currentCommunity.description}</p>
 
               <h3 className="text-lg md:text-xl font-semibold mb-4">All Threads</h3>
               <div className="space-y-4">
                 {posts.length === 0 ? (
-                  <div className="text-center py-20 text-gray-500">
-                    <p className="text-lg mb-2">No threads yet</p>
-                    <p className="text-sm">Go to "Create Community" to add threads</p>
-                  </div>
+                  <div className="text-center py-20 text-gray-500">No threads yet</div>
                 ) : (
                   posts.map((post) => (
                     <div
@@ -389,7 +363,7 @@ export default function AppLayout() {
                       onClick={() => openPost(post)}
                       className="bg-[#1e293b] p-4 md:p-6 rounded-xl cursor-pointer hover:bg-[#2d3d52] transition border border-gray-800"
                     >
-                      <h3 className="text-base md:text-lg font-semibold mb-2 text-white">{post.title}</h3>
+                      <h3 className="text-base md:text-lg font-semibold mb-2">{post.title}</h3>
                       <p className="text-sm md:text-base text-gray-400 mb-3 line-clamp-2">{post.content}</p>
                       <div className="text-xs md:text-sm text-gray-500">
                         by @{post.nickname} • {post.commentsCount || 0} comments • {timeAgo(post.created_at)}
@@ -401,7 +375,7 @@ export default function AppLayout() {
             </div>
           )}
 
-          {/* Post View - WITH FLOATING COMMENT BUTTON */}
+          {/* Post View - WITH FLOATING ICON */}
           {view === 'post' && currentPost && (
             <div>
               <button
@@ -419,11 +393,10 @@ export default function AppLayout() {
                 </div>
               </div>
 
-              {/* Comments List */}
               <h3 className="text-lg md:text-xl font-semibold mb-4">Comments</h3>
-              <div className="space-y-4">
+              <div className="space-y-4 mb-20">
                 {comments.length === 0 ? (
-                  <div className="text-center py-12 text-gray-500">No comments yet. Start the conversation!</div>
+                  <div className="text-center py-12 text-gray-500">No comments yet</div>
                 ) : (
                   comments.map((comment) => (
                     <div key={comment.id} className="bg-[#1e293b] p-4 rounded-xl border border-gray-800">
@@ -436,15 +409,12 @@ export default function AppLayout() {
                 )}
               </div>
 
-              {/* FLOATING COMMENT BUTTON */}
+              {/* FLOATING COMMENT ICON */}
               <button
                 onClick={() => setShowCommentModal(true)}
-                className="fixed bottom-6 right-6 bg-green-600 hover:bg-green-700 text-white p-4 rounded-full shadow-lg transition-all hover:scale-110 z-40"
-                title="Add Comment"
+                className="fixed bottom-6 right-6 bg-green-600 hover:bg-green-700 text-white w-14 h-14 rounded-full shadow-2xl transition-all hover:scale-110 z-50 flex items-center justify-center text-2xl"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-                </svg>
+                💬
               </button>
             </div>
           )}
@@ -460,14 +430,14 @@ export default function AppLayout() {
                   onChange={(e) => setNewCommunityName(e.target.value)}
                   placeholder="Community Name"
                   maxLength={50}
-                  className="w-full px-4 py-3 bg-[#0f172a] border border-gray-700 rounded-xl text-white focus:outline-none focus:border-green-500 text-sm md:text-base"
+                  className="w-full px-4 py-3 bg-[#0f172a] border border-gray-700 rounded-xl text-white focus:outline-none focus:border-green-500"
                 />
                 <textarea
                   value={newCommunityDesc}
                   onChange={(e) => setNewCommunityDesc(e.target.value)}
                   placeholder="Description (optional)"
                   maxLength={200}
-                  className="w-full px-4 py-3 bg-[#0f172a] border border-gray-700 rounded-xl text-white resize-none focus:outline-none focus:border-green-500 text-sm md:text-base"
+                  className="w-full px-4 py-3 bg-[#0f172a] border border-gray-700 rounded-xl text-white resize-none focus:outline-none focus:border-green-500"
                   rows={3}
                 />
 
@@ -478,14 +448,14 @@ export default function AppLayout() {
                   onChange={(e) => setNewPostTitle(e.target.value)}
                   placeholder="Thread Title"
                   maxLength={100}
-                  className="w-full px-4 py-3 bg-[#0f172a] border border-gray-700 rounded-xl text-white focus:outline-none focus:border-green-500 text-sm md:text-base"
+                  className="w-full px-4 py-3 bg-[#0f172a] border border-gray-700 rounded-xl text-white focus:outline-none focus:border-green-500"
                 />
                 <textarea
                   value={newPostContent}
                   onChange={(e) => setNewPostContent(e.target.value)}
                   placeholder="Thread content..."
                   maxLength={500}
-                  className="w-full px-4 py-3 bg-[#0f172a] border border-gray-700 rounded-xl text-white resize-none focus:outline-none focus:border-green-500 text-sm md:text-base"
+                  className="w-full px-4 py-3 bg-[#0f172a] border border-gray-700 rounded-xl text-white resize-none focus:outline-none focus:border-green-500"
                   rows={4}
                 />
 

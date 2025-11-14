@@ -1,0 +1,5 @@
+{
+  "name": "CampConnect",
+  "description": "An anonymous campus community platform where students can create communities, share thoughts, and connect with peers without registration.",
+  "requestFramePermissions": []
+}

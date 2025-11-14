@@ -1,400 +1,443 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Community, Post, Comment } from '../types';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../services/supabase';
+import { Community, Post, Comment } from '../types';
 import { timeAgo } from '../utils/timeAgo';
-import { HomeIcon, PlusIcon, SearchIcon, BackIcon, LoadingIcon } from '../components/icons/Icons';
 
-// Sub-components defined outside the main component to prevent re-creation on re-renders
-const CommunityCard: React.FC<{ community: Community; onClick: () => void }> = ({ community, onClick }) => (
-    <div className="bg-gray-800 p-6 rounded-2xl cursor-pointer transition-all duration-300 hover:bg-gray-700 hover:shadow-lg hover:-translate-y-1" onClick={onClick}>
-        <h3 className="text-green-400 font-bold text-xl mb-2 truncate">{community.name}</h3>
-        <p className="text-gray-400 mb-4 line-clamp-2 h-12">{community.description || ''}</p>
-        <div className="text-gray-500 text-sm font-medium">{community.postsCount} posts</div>
-    </div>
-);
+export default function AppLayout() {
+  const [nickname, setNickname] = useState<string>('');
+  const [showNicknameModal, setShowNicknameModal] = useState(false);
+  const [nicknameInput, setNicknameInput] = useState('');
+  
+  const [view, setView] = useState<'communities' | 'community' | 'post' | 'create'>('communities');
+  const [communities, setCommunities] = useState<Community[]>([]);
+  const [currentCommunity, setCurrentCommunity] = useState<Community | null>(null);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [currentPost, setCurrentPost] = useState<Post | null>(null);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
 
-const PostCard: React.FC<{ post: Post; onClick: () => void }> = ({ post, onClick }) => (
-    <div className="bg-gray-800 p-5 rounded-xl cursor-pointer transition-all duration-300 hover:bg-gray-700" onClick={onClick}>
-        <h3 className="text-lg font-semibold text-white mb-1">{post.title}</h3>
-        <p className="text-gray-400 text-sm mb-3 line-clamp-2 h-10">{post.content || ''}</p>
-        <div className="text-gray-500 text-sm">
-            by <span className="font-semibold text-gray-400">{post.nickname}</span> • {post.commentsCount} comments • {timeAgo(post.created_at)}
-        </div>
-    </div>
-);
+  // Create community form
+  const [newCommunityName, setNewCommunityName] = useState('');
+  const [newCommunityDesc, setNewCommunityDesc] = useState('');
+  const [newPostTitle, setNewPostTitle] = useState('');
+  const [newPostContent, setNewPostContent] = useState('');
 
-const CommentCard: React.FC<{ comment: Comment }> = ({ comment }) => (
-    <div className="bg-gray-800 p-4 rounded-lg">
-        <p className="text-gray-300 mb-2">{comment.text}</p>
-        <div className="text-gray-500 text-xs">
-            <span className="font-semibold text-gray-400">{comment.nickname}</span> • {timeAgo(comment.created_at)}
-        </div>
-    </div>
-);
+  // Comment form
+  const [newComment, setNewComment] = useState('');
 
-// Main Layout Component
-const AppLayout: React.FC = () => {
-    const [view, setView] = useState<'communities' | 'create' | 'community' | 'post'>('communities');
-    const [communities, setCommunities] = useState<Community[]>([]);
-    const [allCommunities, setAllCommunities] = useState<Community[]>([]);
-    const [currentCommunity, setCurrentCommunity] = useState<Community | null>(null);
-    const [currentPost, setCurrentPost] = useState<Post | null>(null);
-    const [comments, setComments] = useState<Comment[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [searchQuery, setSearchQuery] = useState('');
-    const [showCreatePostForm, setShowCreatePostForm] = useState(false);
+  // Check for nickname on load
+  useEffect(() => {
+    const savedNickname = localStorage.getItem('campconnect_nickname');
+    if (savedNickname) {
+      setNickname(savedNickname);
+    } else {
+      setShowNicknameModal(true);
+    }
+  }, []);
 
-    const [nickname, setNickname] = useState<string | null>(null);
-    const [isNicknameModalOpen, setIsNicknameModalOpen] = useState(false);
-    const [pendingAction, setPendingAction] = useState<(() => Promise<void>) | null>(null);
-    const [tempNickname, setTempNickname] = useState('');
+  // Load communities
+  useEffect(() => {
+    if (nickname) loadCommunities();
+  }, [nickname]);
 
-    const [formState, setFormState] = useState({
-        communityName: '',
-        communityDesc: '',
-        postTitle: '',
-        postContent: '',
-        commentText: '',
-    });
+  const handleSetNickname = () => {
+    const trimmed = nicknameInput.trim();
+    if (!trimmed) {
+      alert('Please enter a nickname');
+      return;
+    }
+    if (trimmed.length < 3 || trimmed.length > 20) {
+      alert('Nickname must be 3-20 characters');
+      return;
+    }
+    localStorage.setItem('campconnect_nickname', trimmed);
+    setNickname(trimmed);
+    setShowNicknameModal(false);
+  };
 
-    useEffect(() => {
-        const storedNickname = sessionStorage.getItem('campconnect_nickname');
-        if (storedNickname) {
-            setNickname(storedNickname);
-        }
-    }, []);
-
-    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-        const { name, value } = e.target;
-        setFormState(prevState => ({ ...prevState, [name]: value }));
-    };
-
-    const loadCommunities = useCallback(async () => {
-        setLoading(true);
-        try {
-            const { data, error } = await supabase.from('communities').select('*').order('created_at', { ascending: false });
-            if (error) throw error;
-
-            const communitiesWithCounts = await Promise.all(
-                data.map(async (community) => {
-                    const { count } = await supabase.from('posts').select('*', { count: 'exact', head: true }).eq('community_id', community.id);
-                    return { ...community, postsCount: count || 0 };
-                })
-            );
-
-            setAllCommunities(communitiesWithCounts);
-            setCommunities(communitiesWithCounts);
-        } catch (error) {
-            console.error('Load error:', error);
-        } finally {
-            setLoading(false);
-        }
-    }, []);
+  const loadCommunities = async () => {
+    const { data, error } = await supabase
+      .from('communities')
+      .select('*')
+      .order('created_at', { ascending: false });
     
-    useEffect(() => {
-        if (view === 'communities') {
-            loadCommunities();
-        }
-        if (view !== 'community') {
-            setShowCreatePostForm(false);
-        }
-    }, [view, loadCommunities]);
-
-    useEffect(() => {
-        const filtered = allCommunities.filter(c =>
-            c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            (c.description && c.description.toLowerCase().includes(searchQuery.toLowerCase()))
-        );
-        setCommunities(filtered);
-    }, [searchQuery, allCommunities]);
-
-    const handleSetNickname = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!tempNickname.trim()) {
-            alert('Please enter a valid nickname.');
-            return;
-        }
-        const finalNickname = tempNickname.trim();
-        sessionStorage.setItem('campconnect_nickname', finalNickname);
-        setNickname(finalNickname);
-        setIsNicknameModalOpen(false);
-        setTempNickname('');
-        if (pendingAction) {
-            await pendingAction();
-            setPendingAction(null);
-        }
-    };
-
-    const handleCreateCommunity = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!formState.communityName) { alert('Please enter a community name'); return; }
-        try {
-            const { error } = await supabase.from('communities').insert([{ name: formState.communityName, description: formState.communityDesc || 'No description' }]);
-            if (error) throw error;
-            setFormState(prev => ({ ...prev, communityName: '', communityDesc: '' }));
-            alert('Community created!');
-            setView('communities');
-        } catch (error: any) { alert('Error: ' + error.message); }
-    };
-
-    const openCommunity = async (community: Community) => {
-        setLoading(true);
-        setCurrentCommunity(community);
-        setShowCreatePostForm(false);
-        try {
-            const { data, error } = await supabase.from('posts').select('*').eq('community_id', community.id).order('created_at', { ascending: false });
-            if (error) throw error;
-            const postsWithCounts = await Promise.all(
-                data.map(async (post) => {
-                    const { count } = await supabase.from('comments').select('*', { count: 'exact', head: true }).eq('post_id', post.id);
-                    return { ...post, commentsCount: count || 0 };
-                })
-            );
-            setCurrentCommunity(prev => prev ? { ...prev, posts: postsWithCounts } : null);
-            setView('community');
-        } catch (error) { console.error('Error:', error); } finally { setLoading(false); }
-    };
+    if (error) {
+      console.error('Error loading communities:', error);
+      return;
+    }
     
-    const doCreatePost = async () => {
-        if (!formState.postTitle || !currentCommunity || !nickname) return;
-        try {
-            const { error } = await supabase.from('posts').insert([{ community_id: currentCommunity.id, title: formState.postTitle, content: formState.postContent || '', nickname: nickname }]);
-            if (error) throw error;
-            setFormState(prev => ({ ...prev, postTitle: '', postContent: '' }));
-            setShowCreatePostForm(false);
-            await openCommunity(currentCommunity); // Refresh posts
-        } catch (error: any) { alert('Error: ' + error.message); }
-    };
-    
-    const handleCreatePost = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!formState.postTitle) { alert('Please enter a post title'); return; }
-        if (!nickname) {
-            setPendingAction(() => doCreatePost);
-            setIsNicknameModalOpen(true);
-        } else {
-            await doCreatePost();
-        }
-    };
-    
-    const openPost = async (post: Post) => {
-        setLoading(true);
-        setCurrentPost(post);
-        try {
-            const { data, error } = await supabase.from('comments').select('*').eq('post_id', post.id).order('created_at', { ascending: true });
-            if (error) throw error;
-            setComments(data);
-            setView('post');
-        } catch (error) { console.error('Error:', error); } finally { setLoading(false); }
-    };
-
-    const doCreateComment = async () => {
-        if (!formState.commentText || !currentPost || !nickname) return;
-        try {
-            const { error } = await supabase.from('comments').insert([{ post_id: currentPost.id, text: formState.commentText, nickname: nickname }]);
-            if (error) throw error;
-            setFormState(prev => ({ ...prev, commentText: '' }));
-            await openPost(currentPost); // Refresh comments
-        } catch (error: any) { alert('Error: ' + error.message); }
-    };
-
-    const handleCreateComment = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!formState.commentText) { alert('Please enter a comment'); return; }
-         if (!nickname) {
-            setPendingAction(() => doCreateComment);
-            setIsNicknameModalOpen(true);
-        } else {
-            await doCreateComment();
-        }
-    };
-
-    const renderContent = () => {
-        if (loading) {
-            return <div className="flex justify-center items-center h-full"><LoadingIcon /></div>;
-        }
-
-        switch (view) {
-            case 'communities':
-                return (
-                    <div>
-                        <h2 className="text-3xl font-bold mb-6 text-white">All Communities</h2>
-                        {communities.length > 0 ? (
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                {communities.map(c => <CommunityCard key={c.id} community={c} onClick={() => openCommunity(c)} />)}
-                            </div>
-                        ) : (
-                            <div className="text-center text-gray-500 py-16">No communities found.</div>
-                        )}
-                    </div>
-                );
-            case 'create':
-                return (
-                    <div>
-                        <h2 className="text-3xl font-bold mb-6">Create New Community</h2>
-                        <div className="bg-gray-800 p-8 rounded-2xl">
-                            <form onSubmit={handleCreateCommunity}>
-                                <input type="text" name="communityName" value={formState.communityName} onChange={handleInputChange} className="w-full p-4 bg-gray-900 border border-gray-700 rounded-lg text-white text-base mb-4 focus:ring-2 focus:ring-green-500 outline-none" placeholder="Community Name" maxLength={50} />
-                                <textarea name="communityDesc" value={formState.communityDesc} onChange={handleInputChange} className="w-full p-4 bg-gray-900 border border-gray-700 rounded-lg text-white text-base mb-4 h-32 resize-none focus:ring-2 focus:ring-green-500 outline-none" placeholder="Description (optional)" maxLength={200}></textarea>
-                                <button type="submit" className="bg-green-500 text-white font-semibold px-6 py-3 rounded-lg hover:bg-green-600 transition-colors">Create Community</button>
-                            </form>
-                        </div>
-                    </div>
-                );
-            case 'community':
-                if (!currentCommunity) return null;
-                return (
-                    <div>
-                        <button onClick={() => setView('communities')} className="flex items-center gap-2 bg-gray-700 text-white font-semibold px-4 py-2 rounded-lg hover:bg-gray-600 mb-6"><BackIcon/> Back</button>
-                        
-                        <div className="md:flex md:justify-between md:items-start mb-6">
-                            <div className="mb-4 md:mb-0">
-                                <h2 className="text-3xl font-bold">{currentCommunity.name}</h2>
-                                <p className="text-gray-400 mt-1">{currentCommunity.description}</p>
-                            </div>
-                            <button 
-                                onClick={() => setShowCreatePostForm(prev => !prev)}
-                                className="flex-shrink-0 flex items-center justify-center gap-2 bg-green-500 text-white font-semibold px-4 py-2 rounded-lg hover:bg-green-600 transition-colors w-full md:w-auto"
-                            >
-                                <PlusIcon /> <span>{showCreatePostForm ? 'Cancel' : 'New Post'}</span>
-                            </button>
-                        </div>
-                        
-                        {showCreatePostForm && (
-                             <div className="bg-gray-800 p-6 rounded-2xl mb-8">
-                                <form onSubmit={handleCreatePost}>
-                                    <input type="text" name="postTitle" value={formState.postTitle} onChange={handleInputChange} className="w-full p-3 bg-gray-900 border border-gray-700 rounded-lg text-white mb-3 focus:ring-2 focus:ring-green-500 outline-none" placeholder="Post Title" maxLength={100} />
-                                    <textarea name="postContent" value={formState.postContent} onChange={handleInputChange} className="w-full p-3 bg-gray-900 border border-gray-700 rounded-lg text-white mb-3 h-24 resize-none focus:ring-2 focus:ring-green-500 outline-none" placeholder="What's on your mind?" maxLength={500}></textarea>
-                                    <button type="submit" className="bg-green-500 text-white font-semibold px-5 py-2 rounded-lg hover:bg-green-600 transition-colors">Create Post</button>
-                                </form>
-                            </div>
-                        )}
-
-                        <div className="space-y-4">
-                            {currentCommunity.posts?.length ? currentCommunity.posts.map(p => <PostCard key={p.id} post={p} onClick={() => openPost(p)} />) : <div className="text-center text-gray-500 py-10">No posts yet. Be the first!</div>}
-                        </div>
-                    </div>
-                );
-            case 'post':
-                if (!currentPost || !currentCommunity) return null;
-                return (
-                    <div>
-                        <button onClick={() => openCommunity(currentCommunity)} className="flex items-center gap-2 bg-gray-700 text-white font-semibold px-4 py-2 rounded-lg hover:bg-gray-600 mb-6">
-                            <BackIcon /> Back to {currentCommunity.name}
-                        </button>
-                        
-                        <div className="mb-8">
-                            <h2 className="text-3xl font-bold mb-2 text-white">{currentPost.title}</h2>
-                            <div className="text-gray-500 text-sm mb-4">
-                                Posted by <span className="font-semibold text-gray-400">{currentPost.nickname}</span> • {timeAgo(currentPost.created_at)}
-                            </div>
-                            {currentPost.content && <p className="text-gray-300 whitespace-pre-wrap">{currentPost.content}</p>}
-                        </div>
-                        
-                        <hr className="border-gray-700 my-8" />
-
-                        <div>
-                            <h3 className="text-2xl font-bold mb-6">Comments ({comments.length})</h3>
-                            
-                            <div className="bg-gray-800/50 p-6 rounded-2xl mb-8">
-                               <form onSubmit={handleCreateComment}>
-                                    <textarea name="commentText" value={formState.commentText} onChange={handleInputChange} className="w-full p-3 bg-gray-900 border border-gray-700 rounded-lg text-white mb-3 h-24 resize-none focus:ring-2 focus:ring-green-500 outline-none" placeholder="Add to the discussion..." maxLength={300}></textarea>
-                                    <button type="submit" className="bg-green-500 text-white font-semibold px-5 py-2 rounded-lg hover:bg-green-600 transition-colors">Post Comment</button>
-                                </form>
-                            </div>
-                            
-                            <div className="space-y-4">
-                                {comments.length > 0 ? comments.map(c => <CommentCard key={c.id} comment={c} />) : <div className="text-center text-gray-500 py-10">Be the first to comment.</div>}
-                            </div>
-                        </div>
-                    </div>
-                );
-        }
-    };
-    
-    return (
-        <div className="min-h-screen flex flex-col font-sans">
-            {isNicknameModalOpen && (
-                <div className="fixed inset-0 bg-black/70 flex justify-center items-center z-50 p-4">
-                    <div className="bg-gray-800 p-8 rounded-2xl shadow-lg w-full max-w-sm">
-                        <h3 className="text-xl font-bold mb-4 text-white">Choose a Nickname</h3>
-                        <p className="text-gray-400 mb-6 text-sm">You need a nickname to post or comment. This is stored only for your current session.</p>
-                        <form onSubmit={handleSetNickname}>
-                            <input 
-                                type="text" 
-                                value={tempNickname}
-                                onChange={(e) => setTempNickname(e.target.value)}
-                                className="w-full p-3 bg-gray-900 border border-gray-700 rounded-lg text-white mb-4 focus:ring-2 focus:ring-green-500 outline-none"
-                                placeholder="e.g., SpeedySnail"
-                                maxLength={25}
-                                required
-                            />
-                            <button type="submit" className="w-full bg-green-500 text-white font-semibold py-3 rounded-lg hover:bg-green-600 transition-colors">
-                                Save and Continue
-                            </button>
-                        </form>
-                    </div>
-                </div>
-            )}
-            <header className="bg-gray-800/80 backdrop-blur-sm p-4 border-b border-gray-700 flex items-center gap-6 sticky top-0 z-10">
-                <button
-                    onClick={() => setView('communities')}
-                    className="flex items-center gap-2 text-white focus:outline-none focus:ring-2 focus:ring-green-500/50 rounded-lg transition-opacity hover:opacity-80"
-                    aria-label="Go to homepage"
-                >
-                    <span className="text-2xl">🎓</span>
-                    <span className="text-xl font-bold">CampConnect</span>
-                </button>
-                <div className="relative flex-1 max-w-lg">
-                    <SearchIcon />
-                    <input 
-                        type="text" 
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Search communities..."
-                        className="w-full bg-gray-900/50 border border-gray-700 rounded-lg pl-10 pr-4 py-2 text-white focus:ring-2 focus:ring-green-500 outline-none"
-                    />
-                </div>
-            </header>
-            <div className="flex flex-1">
-                <aside className="w-64 bg-gray-800 p-4 border-r border-gray-700 hidden md:block">
-                    <nav className="space-y-2">
-                        <button onClick={() => setView('communities')} className={`w-full flex items-center gap-3 p-3 rounded-lg font-semibold transition-colors ${view === 'communities' ? 'bg-green-500 text-white' : 'text-gray-400 hover:bg-gray-700 hover:text-white'}`}>
-                            <HomeIcon /> Communities
-                        </button>
-                        <button onClick={() => { setView('create'); setFormState(p=>({...p, communityName: '', communityDesc: ''}))}} className={`w-full flex items-center gap-3 p-3 rounded-lg font-semibold transition-colors ${view === 'create' ? 'bg-green-500 text-white' : 'text-gray-400 hover:bg-gray-700 hover:text-white'}`}>
-                            <PlusIcon /> Create Community
-                        </button>
-                    </nav>
-                </aside>
-                <main className="flex-1 p-4 sm:p-6 lg:p-8 bg-gray-900 overflow-y-auto pb-24 md:pb-6 lg:pb-8">
-                    {renderContent()}
-                </main>
-            </div>
-            <footer className="text-center p-4 bg-gray-800 border-t border-gray-700 text-sm text-gray-500">
-                Made with love by Broxgit
-            </footer>
-            {/* Mobile Bottom Navigation */}
-            <div className="fixed bottom-0 left-0 right-0 bg-gray-800/80 backdrop-blur-sm border-t border-gray-700 p-2 flex justify-around md:hidden z-20">
-                <button 
-                    onClick={() => setView('communities')} 
-                    className={`flex flex-col items-center justify-center p-2 rounded-lg transition-colors w-24 ${view === 'communities' ? 'text-green-400' : 'text-gray-400 hover:text-white'}`}
-                    aria-label="Go to communities"
-                >
-                    <HomeIcon />
-                    <span className="text-xs font-medium mt-1">Communities</span>
-                </button>
-                <button 
-                    onClick={() => { setView('create'); setFormState(p=>({...p, communityName: '', communityDesc: ''}))}} 
-                    className={`flex flex-col items-center justify-center p-2 rounded-lg transition-colors w-24 ${view === 'create' ? 'text-green-400' : 'text-gray-400 hover:text-white'}`}
-                    aria-label="Create a new community"
-                >
-                    <PlusIcon />
-                    <span className="text-xs font-medium mt-1">Create</span>
-                </button>
-            </div>
-        </div>
+    // Get post counts
+    const communitiesWithCounts = await Promise.all(
+      (data || []).map(async (community) => {
+        const { count } = await supabase
+          .from('posts')
+          .select('*', { count: 'exact', head: true })
+          .eq('community_id', community.id);
+        return { ...community, postsCount: count || 0 };
+      })
     );
-};
+    
+    setCommunities(communitiesWithCounts);
+  };
 
-export default AppLayout;
+  const openCommunity = async (community: Community) => {
+    setCurrentCommunity(community);
+    setView('community');
+    
+    const { data, error } = await supabase
+      .from('posts')
+      .select('*')
+      .eq('community_id', community.id)
+      .order('created_at', { ascending: false });
+    
+    if (error) {
+      console.error('Error loading posts:', error);
+      return;
+    }
+    
+    // Get comment counts
+    const postsWithCounts = await Promise.all(
+      (data || []).map(async (post) => {
+        const { count } = await supabase
+          .from('comments')
+          .select('*', { count: 'exact', head: true })
+          .eq('post_id', post.id);
+        return { ...post, commentsCount: count || 0 };
+      })
+    );
+    
+    setPosts(postsWithCounts);
+  };
+
+  const openPost = async (post: Post) => {
+    setCurrentPost(post);
+    setView('post');
+    
+    const { data, error } = await supabase
+      .from('comments')
+      .select('*')
+      .eq('post_id', post.id)
+      .order('created_at', { ascending: true });
+    
+    if (error) {
+      console.error('Error loading comments:', error);
+      return;
+    }
+    
+    setComments(data || []);
+  };
+
+  const createCommunity = async () => {
+    if (!newCommunityName.trim()) {
+      alert('Please enter a community name');
+      return;
+    }
+
+    // Create community
+    const { data: communityData, error: communityError } = await supabase
+      .from('communities')
+      .insert([{
+        name: newCommunityName.trim(),
+        description: newCommunityDesc.trim() || 'No description'
+      }])
+      .select()
+      .single();
+
+    if (communityError) {
+      console.error('Error creating community:', communityError);
+      alert('Failed to create community');
+      return;
+    }
+
+    // Create initial post if provided
+    if (newPostTitle.trim() && communityData) {
+      await supabase
+        .from('posts')
+        .insert([{
+          community_id: communityData.id,
+          title: newPostTitle.trim(),
+          content: newPostContent.trim() || '',
+          nickname: nickname
+        }]);
+    }
+
+    setNewCommunityName('');
+    setNewCommunityDesc('');
+    setNewPostTitle('');
+    setNewPostContent('');
+    setView('communities');
+    loadCommunities();
+  };
+
+  const createComment = async () => {
+    if (!newComment.trim()) {
+      alert('Please enter a comment');
+      return;
+    }
+
+    if (!currentPost) return;
+
+    const { error } = await supabase
+      .from('comments')
+      .insert([{
+        post_id: currentPost.id,
+        text: newComment.trim(),
+        nickname: nickname
+      }]);
+
+    if (error) {
+      console.error('Error creating comment:', error);
+      alert('Failed to post comment');
+      return;
+    }
+
+    setNewComment('');
+    openPost(currentPost);
+  };
+
+  const filteredCommunities = communities.filter(c =>
+    c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (c.description && c.description.toLowerCase().includes(searchQuery.toLowerCase()))
+  );
+
+  // Nickname Modal
+  if (showNicknameModal) {
+    return (
+      <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+        <div className="bg-[#1e293b] p-8 rounded-2xl max-w-md w-full mx-4">
+          <h2 className="text-2xl font-bold text-white mb-4">Choose Your Nickname</h2>
+          <p className="text-gray-400 mb-6">This will be displayed on your posts and comments</p>
+          <input
+            type="text"
+            value={nicknameInput}
+            onChange={(e) => setNicknameInput(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleSetNickname()}
+            placeholder="Enter nickname (3-20 characters)"
+            maxLength={20}
+            className="w-full px-4 py-3 bg-[#0f172a] border border-gray-700 rounded-xl text-white focus:outline-none focus:border-green-500"
+          />
+          <button
+            onClick={handleSetNickname}
+            className="w-full mt-4 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl transition"
+          >
+            Continue
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#0a0a0a] text-white">
+      {/* Header */}
+      <header className="bg-[#1e293b] border-b border-gray-800 px-6 py-4 flex items-center gap-4">
+        <div className="flex items-center gap-2">
+          <span className="text-3xl">🎓</span>
+          <span className="text-xl font-bold">CampConnect</span>
+        </div>
+        {view !== 'communities' && (
+          <input
+            type="text"
+            placeholder="🔍 Search communities..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="flex-1 max-w-md px-4 py-2 bg-[#0f172a] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-green-500"
+          />
+        )}
+        <div className="ml-auto text-sm text-gray-400">
+          @{nickname}
+        </div>
+      </header>
+
+      <div className="flex">
+        {/* Sidebar */}
+        <aside className="w-64 bg-[#1e293b] border-r border-gray-800 min-h-[calc(100vh-73px)] p-4">
+          <button
+            onClick={() => { setView('communities'); loadCommunities(); }}
+            className={`w-full px-4 py-3 rounded-lg mb-2 font-medium transition flex items-center gap-3 ${
+              view === 'communities' ? 'bg-green-600 text-white' : 'bg-transparent text-gray-400 hover:bg-gray-800'
+            }`}
+          >
+            <span>🏘️</span> Communities
+          </button>
+          <button
+            onClick={() => setView('create')}
+            className={`w-full px-4 py-3 rounded-lg font-medium transition flex items-center gap-3 ${
+              view === 'create' ? 'bg-green-600 text-white' : 'bg-transparent text-gray-400 hover:bg-gray-800'
+            }`}
+          >
+            <span>➕</span> Create Community
+          </button>
+        </aside>
+
+        {/* Main Content */}
+        <main className="flex-1 p-8 max-w-4xl">
+          {/* Communities List */}
+          {view === 'communities' && (
+            <div>
+              <h2 className="text-3xl font-bold mb-6">All Communities</h2>
+              <div className="space-y-4">
+                {filteredCommunities.length === 0 ? (
+                  <div className="text-center py-20 text-gray-500">No communities yet</div>
+                ) : (
+                  filteredCommunities.map((community) => (
+                    <div
+                      key={community.id}
+                      onClick={() => openCommunity(community)}
+                      className="bg-[#1e293b] p-6 rounded-xl cursor-pointer hover:bg-[#2d3d52] transition"
+                    >
+                      <h3 className="text-xl font-semibold text-green-400 mb-2">{community.name}</h3>
+                      <p className="text-gray-400 mb-3">{community.description}</p>
+                      <div className="text-sm text-gray-500">{community.postsCount || 0} threads</div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Community View (Thread List) */}
+          {view === 'community' && currentCommunity && (
+            <div>
+              <button
+                onClick={() => setView('communities')}
+                className="mb-4 px-4 py-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition"
+              >
+                ← Back
+              </button>
+              <h2 className="text-3xl font-bold mb-2">{currentCommunity.name}</h2>
+              <p className="text-gray-400 mb-8">{currentCommunity.description}</p>
+
+              <h3 className="text-xl font-semibold mb-4">All Threads</h3>
+              <div className="space-y-4">
+                {posts.length === 0 ? (
+                  <div className="text-center py-20 text-gray-500">No threads yet</div>
+                ) : (
+                  posts.map((post) => (
+                    <div
+                      key={post.id}
+                      onClick={() => openPost(post)}
+                      className="bg-[#1e293b] p-6 rounded-xl cursor-pointer hover:bg-[#2d3d52] transition"
+                    >
+                      <h3 className="text-lg font-semibold mb-2">{post.title}</h3>
+                      <p className="text-gray-400 mb-3">{post.content}</p>
+                      <div className="text-sm text-gray-500">
+                        by @{post.nickname} • {post.commentsCount || 0} comments • {timeAgo(post.created_at)}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Post View (Comments Only) */}
+          {view === 'post' && currentPost && (
+            <div>
+              <button
+                onClick={() => { setView('community'); setCurrentPost(null); }}
+                className="mb-4 px-4 py-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition"
+              >
+                ← Back
+              </button>
+
+              <div className="bg-[#1e293b] p-6 rounded-xl mb-6">
+                <h2 className="text-2xl font-bold mb-3">{currentPost.title}</h2>
+                <p className="text-gray-300 mb-4">{currentPost.content}</p>
+                <div className="text-sm text-gray-500">
+                  by @{currentPost.nickname} • {timeAgo(currentPost.created_at)}
+                </div>
+              </div>
+
+              {/* Comment Form */}
+              <div className="bg-[#1e293b] p-6 rounded-xl mb-6">
+                <h3 className="text-lg font-semibold mb-4">Add a Comment</h3>
+                <textarea
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  placeholder="Write your comment..."
+                  maxLength={500}
+                  className="w-full px-4 py-3 bg-[#0f172a] border border-gray-700 rounded-xl text-white resize-none focus:outline-none focus:border-green-500 mb-4"
+                  rows={4}
+                />
+                <button
+                  onClick={createComment}
+                  className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition"
+                >
+                  Comment
+                </button>
+              </div>
+
+              {/* Comments List */}
+              <h3 className="text-xl font-semibold mb-4">Comments</h3>
+              <div className="space-y-4">
+                {comments.length === 0 ? (
+                  <div className="text-center py-12 text-gray-500">No comments yet</div>
+                ) : (
+                  comments.map((comment) => (
+                    <div key={comment.id} className="bg-[#1e293b] p-4 rounded-xl">
+                      <p className="text-gray-300 mb-2">{comment.text}</p>
+                      <div className="text-sm text-gray-500">
+                        @{comment.nickname} • {timeAgo(comment.created_at)}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Create Community */}
+          {view === 'create' && (
+            <div>
+              <h2 className="text-3xl font-bold mb-6">Create New Community</h2>
+              <div className="bg-[#1e293b] p-6 rounded-xl space-y-4">
+                <input
+                  type="text"
+                  value={newCommunityName}
+                  onChange={(e) => setNewCommunityName(e.target.value)}
+                  placeholder="Community Name"
+                  maxLength={50}
+                  className="w-full px-4 py-3 bg-[#0f172a] border border-gray-700 rounded-xl text-white focus:outline-none focus:border-green-500"
+                />
+                <textarea
+                  value={newCommunityDesc}
+                  onChange={(e) => setNewCommunityDesc(e.target.value)}
+                  placeholder="Description (optional)"
+                  maxLength={200}
+                  className="w-full px-4 py-3 bg-[#0f172a] border border-gray-700 rounded-xl text-white resize-none focus:outline-none focus:border-green-500"
+                  rows={3}
+                />
+
+                <h3 className="text-lg font-semibold mt-6 mb-2">Create Initial Thread (Optional)</h3>
+                <input
+                  type="text"
+                  value={newPostTitle}
+                  onChange={(e) => setNewPostTitle(e.target.value)}
+                  placeholder="Thread Title"
+                  maxLength={100}
+                  className="w-full px-4 py-3 bg-[#0f172a] border border-gray-700 rounded-xl text-white focus:outline-none focus:border-green-500"
+                />
+                <textarea
+                  value={newPostContent}
+                  onChange={(e) => setNewPostContent(e.target.value)}
+                  placeholder="Thread content..."
+                  maxLength={500}
+                  className="w-full px-4 py-3 bg-[#0f172a] border border-gray-700 rounded-xl text-white resize-none focus:outline-none focus:border-green-500"
+                  rows={4}
+                />
+
+                <button
+                  onClick={createCommunity}
+                  className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl transition"
+                >
+                  Create Community
+                </button>
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
+    </div>
+  );
+}

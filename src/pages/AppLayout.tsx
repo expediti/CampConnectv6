@@ -15,7 +15,6 @@ export default function AppLayout() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [currentPost, setCurrentPost] = useState<Post | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
 
   const [newCommunityName, setNewCommunityName] = useState('');
   const [newCommunityDesc, setNewCommunityDesc] = useState('');
@@ -70,6 +69,14 @@ export default function AppLayout() {
     );
     
     setCommunities(communitiesWithCounts);
+  };
+
+  const goHome = () => {
+    setView('communities');
+    setCurrentCommunity(null);
+    setCurrentPost(null);
+    setSidebarOpen(false);
+    loadCommunities();
   };
 
   const openCommunity = async (community: Community) => {
@@ -147,9 +154,7 @@ export default function AppLayout() {
     setNewCommunityDesc('');
     setNewPostTitle('');
     setNewPostContent('');
-    setView('communities');
-    setSidebarOpen(false);
-    loadCommunities();
+    goHome();
   };
 
   const createComment = async () => {
@@ -177,14 +182,9 @@ export default function AppLayout() {
     openPost(currentPost);
   };
 
-  const filteredCommunities = communities.filter(c =>
-    c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (c.description && c.description.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
-
   if (showNicknameModal) {
     return (
-      <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+      <div className="fixed inset-0 bg-[#0a0a0a] flex items-center justify-center z-50 p-4">
         <div className="bg-[#1e293b] p-6 md:p-8 rounded-2xl max-w-md w-full">
           <h2 className="text-xl md:text-2xl font-bold text-white mb-4">Choose Your Nickname</h2>
           <p className="text-gray-400 mb-6 text-sm">This will be displayed on your posts and comments</p>
@@ -209,21 +209,39 @@ export default function AppLayout() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white">
+    <div className="min-h-screen bg-gradient-to-b from-[#0a0a0a] to-[#1a1a2e] text-white">
       {/* Header */}
-      <header className="bg-[#1e293b] border-b border-gray-800 px-4 md:px-6 py-4 flex items-center gap-4">
-        <button
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="md:hidden text-2xl"
-        >
-          ☰
-        </button>
-        <div className="flex items-center gap-2">
-          <span className="text-2xl md:text-3xl">🎓</span>
-          <span className="text-lg md:text-xl font-bold">CampConnect</span>
-        </div>
-        <div className="ml-auto text-xs md:text-sm text-gray-400">
-          @{nickname}
+      <header className="bg-[#1e293b] border-b border-gray-800 px-4 md:px-6 py-4">
+        <div className="flex items-center gap-4">
+          {/* Hamburger (Mobile) */}
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="md:hidden text-2xl hover:text-green-400 transition"
+          >
+            ☰
+          </button>
+
+          {/* Home Button (Shows when not on communities page) */}
+          {view !== 'communities' && (
+            <button
+              onClick={goHome}
+              className="flex items-center gap-2 text-sm md:text-base text-gray-400 hover:text-white transition"
+            >
+              <span className="text-lg">←</span>
+              <span className="hidden md:inline">Home</span>
+            </button>
+          )}
+
+          {/* Logo */}
+          <div className="flex items-center gap-2">
+            <span className="text-2xl md:text-3xl">🎓</span>
+            <span className="text-lg md:text-xl font-bold">CampConnect</span>
+          </div>
+
+          {/* Nickname */}
+          <div className="ml-auto text-xs md:text-sm text-gray-400 bg-[#0f172a] px-3 py-1.5 rounded-lg">
+            @{nickname}
+          </div>
         </div>
       </header>
 
@@ -246,7 +264,7 @@ export default function AppLayout() {
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         `}>
           <button
-            onClick={() => { setView('communities'); loadCommunities(); setSidebarOpen(false); }}
+            onClick={goHome}
             className={`w-full px-4 py-3 rounded-lg mb-2 font-medium transition flex items-center gap-3 ${
               view === 'communities' ? 'bg-green-600 text-white' : 'bg-transparent text-gray-400 hover:bg-gray-800'
             }`}
@@ -270,14 +288,17 @@ export default function AppLayout() {
             <div>
               <h2 className="text-2xl md:text-3xl font-bold mb-6">All Communities</h2>
               <div className="space-y-4">
-                {filteredCommunities.length === 0 ? (
-                  <div className="text-center py-20 text-gray-500">No communities yet</div>
+                {communities.length === 0 ? (
+                  <div className="text-center py-20 text-gray-500">
+                    <p className="text-lg mb-2">No communities yet</p>
+                    <p className="text-sm">Create the first one!</p>
+                  </div>
                 ) : (
-                  filteredCommunities.map((community) => (
+                  communities.map((community) => (
                     <div
                       key={community.id}
                       onClick={() => openCommunity(community)}
-                      className="bg-[#1e293b] p-4 md:p-6 rounded-xl cursor-pointer hover:bg-[#2d3d52] transition"
+                      className="bg-[#1e293b] p-4 md:p-6 rounded-xl cursor-pointer hover:bg-[#2d3d52] transition border border-gray-800"
                     >
                       <h3 className="text-lg md:text-xl font-semibold text-green-400 mb-2">{community.name}</h3>
                       <p className="text-sm md:text-base text-gray-400 mb-3">{community.description}</p>
@@ -293,10 +314,10 @@ export default function AppLayout() {
           {view === 'community' && currentCommunity && (
             <div>
               <button
-                onClick={() => setView('communities')}
-                className="mb-4 px-4 py-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition text-sm md:text-base"
+                onClick={goHome}
+                className="mb-4 px-4 py-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition text-sm md:text-base flex items-center gap-2"
               >
-                ← Back
+                ← Back to Communities
               </button>
               <h2 className="text-2xl md:text-3xl font-bold mb-2">{currentCommunity.name}</h2>
               <p className="text-sm md:text-base text-gray-400 mb-8">{currentCommunity.description}</p>
@@ -304,13 +325,13 @@ export default function AppLayout() {
               <h3 className="text-lg md:text-xl font-semibold mb-4">All Threads</h3>
               <div className="space-y-4">
                 {posts.length === 0 ? (
-                  <div className="text-center py-20 text-gray-500">No threads yet</div>
+                  <div className="text-center py-20 text-gray-500">No threads yet. Be the first to post!</div>
                 ) : (
                   posts.map((post) => (
                     <div
                       key={post.id}
                       onClick={() => openPost(post)}
-                      className="bg-[#1e293b] p-4 md:p-6 rounded-xl cursor-pointer hover:bg-[#2d3d52] transition"
+                      className="bg-[#1e293b] p-4 md:p-6 rounded-xl cursor-pointer hover:bg-[#2d3d52] transition border border-gray-800"
                     >
                       <h3 className="text-base md:text-lg font-semibold mb-2">{post.title}</h3>
                       <p className="text-sm md:text-base text-gray-400 mb-3 line-clamp-2">{post.content}</p>
@@ -329,12 +350,12 @@ export default function AppLayout() {
             <div>
               <button
                 onClick={() => { setView('community'); setCurrentPost(null); }}
-                className="mb-4 px-4 py-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition text-sm md:text-base"
+                className="mb-4 px-4 py-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition text-sm md:text-base flex items-center gap-2"
               >
-                ← Back
+                ← Back to Threads
               </button>
 
-              <div className="bg-[#1e293b] p-4 md:p-6 rounded-xl mb-6">
+              <div className="bg-[#1e293b] p-4 md:p-6 rounded-xl mb-6 border border-gray-800">
                 <h2 className="text-xl md:text-2xl font-bold mb-3">{currentPost.title}</h2>
                 <p className="text-sm md:text-base text-gray-300 mb-4">{currentPost.content}</p>
                 <div className="text-xs md:text-sm text-gray-500">
@@ -343,7 +364,7 @@ export default function AppLayout() {
               </div>
 
               {/* Comment Form */}
-              <div className="bg-[#1e293b] p-4 md:p-6 rounded-xl mb-6">
+              <div className="bg-[#1e293b] p-4 md:p-6 rounded-xl mb-6 border border-gray-800">
                 <h3 className="text-base md:text-lg font-semibold mb-4">Add a Comment</h3>
                 <textarea
                   value={newComment}
@@ -365,10 +386,10 @@ export default function AppLayout() {
               <h3 className="text-lg md:text-xl font-semibold mb-4">Comments</h3>
               <div className="space-y-4">
                 {comments.length === 0 ? (
-                  <div className="text-center py-12 text-gray-500">No comments yet</div>
+                  <div className="text-center py-12 text-gray-500">No comments yet. Start the conversation!</div>
                 ) : (
                   comments.map((comment) => (
-                    <div key={comment.id} className="bg-[#1e293b] p-4 rounded-xl">
+                    <div key={comment.id} className="bg-[#1e293b] p-4 rounded-xl border border-gray-800">
                       <p className="text-sm md:text-base text-gray-300 mb-2">{comment.text}</p>
                       <div className="text-xs md:text-sm text-gray-500">
                         @{comment.nickname} • {timeAgo(comment.created_at)}
@@ -384,7 +405,7 @@ export default function AppLayout() {
           {view === 'create' && (
             <div>
               <h2 className="text-2xl md:text-3xl font-bold mb-6">Create New Community</h2>
-              <div className="bg-[#1e293b] p-4 md:p-6 rounded-xl space-y-4">
+              <div className="bg-[#1e293b] p-4 md:p-6 rounded-xl space-y-4 border border-gray-800">
                 <input
                   type="text"
                   value={newCommunityName}

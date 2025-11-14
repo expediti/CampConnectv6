@@ -7,6 +7,7 @@ import { timeAgo } from '../utils/timeAgo';
 export default function AppLayout() {
   const navigate = useNavigate();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const realtimeChannelRef = useRef<any>(null);
   
   const [nickname, setNickname] = useState<string>('');
   const [showNicknameModal, setShowNicknameModal] = useState(false);
@@ -24,7 +25,7 @@ export default function AppLayout() {
   const [newCommunityDesc, setNewCommunityDesc] = useState('');
   const [newMessage, setNewMessage] = useState('');
 
-  // Scroll to bottom when messages change
+  // Auto-scroll when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -42,29 +43,63 @@ export default function AppLayout() {
     if (nickname) loadCommunities();
   }, [nickname]);
 
-  // Real-time subscription
+  // Real-time subscription with proper cleanup
   useEffect(() => {
-    if (currentCommunity && view === 'chat') {
-      const channel = supabase
-        .channel(`community-${currentCommunity.id}`)
-        .on(
-          'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'posts', filter: `community_id=eq.${currentCommunity.id}` },
-          (payload) => {
-            const newPost = payload.new as Post;
-            setMessages(prev => {
-              // Check if message already exists (to avoid duplicates)
-              if (prev.some(m => m.id === newPost.id)) return prev;
-              return [...prev, newPost];
-            });
-          }
-        )
-        .subscribe();
-      
-      return () => {
-        supabase.removeChannel(channel);
-      };
+    if (!currentCommunity || view !== 'chat') {
+      // Clean up previous subscription
+      if (realtimeChannelRef.current) {
+        supabase.removeChannel(realtimeChannelRef.current);
+        realtimeChannelRef.current = null;
+      }
+      return;
     }
+
+    console.log('🔴 Setting up real-time for community:', currentCommunity.id);
+
+    const channel = supabase
+      .channel(`community-${currentCommunity.id}-${Date.now()}`) // Unique channel name
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'posts',
+          filter: `community_id=eq.${currentCommunity.id}`
+        },
+        (payload) => {
+          console.log('🟢 New message received:', payload.new);
+          const newPost = payload.new as Post;
+          
+          setMessages((prevMessages) => {
+            // Check if message already exists
+            const exists = prevMessages.some(m => 
+              m.id === newPost.id || 
+              (m.content === newPost.content && m.nickname === newPost.nickname)
+            );
+            
+            if (exists) {
+              console.log('⚠️ Message already exists, skipping');
+              return prevMessages;
+            }
+            
+            console.log('✅ Adding new message to list');
+            return [...prevMessages, newPost];
+          });
+        }
+      )
+      .subscribe((status) => {
+        console.log('📡 Realtime status:', status);
+      });
+
+    realtimeChannelRef.current = channel;
+
+    return () => {
+      console.log('🔵 Cleaning up real-time subscription');
+      if (realtimeChannelRef.current) {
+        supabase.removeChannel(realtimeChannelRef.current);
+        realtimeChannelRef.current = null;
+      }
+    };
   }, [currentCommunity, view]);
 
   const handleSetNickname = () => {
@@ -79,14 +114,23 @@ export default function AppLayout() {
   };
 
   const loadCommunities = async () => {
-    const { data } = await supabase.from('communities').select('*').order('created_at', { ascending: false });
+    const { data } = await supabase
+      .from('communities')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
     if (!data) return;
+    
     const communitiesWithCounts = await Promise.all(
       data.map(async (community) => {
-        const { count } = await supabase.from('posts').select('*', { count: 'exact', head: true }).eq('community_id', community.id);
+        const { count } = await supabase
+          .from('posts')
+          .select('*', { count: 'exact', head: true })
+          .eq('community_id', community.id);
         return { ...community, postsCount: count || 0 };
       })
     );
+    
     setCommunities(communitiesWithCounts);
   };
 
@@ -99,11 +143,23 @@ export default function AppLayout() {
   };
 
   const openCommunity = async (community: Community) => {
+    console.log('📂 Opening community:', community.name);
     setCurrentCommunity(community);
     setView('chat');
     setSidebarOpen(false);
-    const { data } = await supabase.from('posts').select('*').eq('community_id', community.id).order('created_at', { ascending: true });
-    setMessages(data || []);
+    
+    const { data, error } = await supabase
+      .from('posts')
+      .select('*')
+      .eq('community_id', community.id)
+      .order('created_at', { ascending: true });
+    
+    if (error) {
+      console.error('❌ Error loading messages:', error);
+    } else {
+      console.log('✅ Loaded', data?.length || 0, 'messages');
+      setMessages(data || []);
+    }
   };
 
   const createCommunity = async () => {
@@ -111,14 +167,19 @@ export default function AppLayout() {
       alert('Please enter a community name');
       return;
     }
-    const { error } = await supabase.from('communities').insert([{
-      name: newCommunityName.trim(),
-      description: newCommunityDesc.trim() || 'No description'
-    }]);
+    
+    const { error } = await supabase
+      .from('communities')
+      .insert([{
+        name: newCommunityName.trim(),
+        description: newCommunityDesc.trim() || 'No description'
+      }]);
+    
     if (error) {
       alert('Failed to create community');
       return;
     }
+    
     setNewCommunityName('');
     setNewCommunityDesc('');
     goHome();
@@ -128,7 +189,7 @@ export default function AppLayout() {
     if (!newMessage.trim() || !currentCommunity) return;
     
     const tempId = `temp-${Date.now()}`;
-    const newMsg: Post = {
+    const optimisticMsg: Post = {
       id: tempId,
       community_id: currentCommunity.id,
       title: newMessage.trim().slice(0, 100),
@@ -137,28 +198,31 @@ export default function AppLayout() {
       created_at: new Date().toISOString()
     };
 
-    // Optimistically add message to UI immediately
-    setMessages(prev => [...prev, newMsg]);
+    // Show message immediately for this user
+    console.log('📤 Sending message...');
+    setMessages(prev => [...prev, optimisticMsg]);
     setNewMessage('');
     setShowMessageModal(false);
 
-    // Send to database
+    // Save to database (this will trigger real-time for OTHER users)
     const { data, error } = await supabase
       .from('posts')
       .insert([{
         community_id: currentCommunity.id,
-        title: newMsg.title,
-        content: newMsg.content,
+        title: optimisticMsg.title,
+        content: optimisticMsg.content,
         nickname: nickname
       }])
       .select()
       .single();
 
     if (error) {
+      console.error('❌ Failed to send:', error);
       alert('Failed to send message');
-      // Remove temp message on error
+      // Remove optimistic message
       setMessages(prev => prev.filter(m => m.id !== tempId));
     } else {
+      console.log('✅ Message sent successfully:', data);
       // Replace temp message with real one
       setMessages(prev => prev.map(m => m.id === tempId ? data : m));
     }
@@ -308,7 +372,6 @@ export default function AppLayout() {
                 <div ref={messagesEndRef} />
               </div>
               
-              {/* FLOATING BUTTON - FIXED FOR DESKTOP */}
               <button 
                 onClick={() => setShowMessageModal(true)} 
                 className="fixed bottom-6 right-6 bg-green-600 hover:bg-green-700 text-white w-14 h-14 rounded-full shadow-2xl transition-all hover:scale-110 flex items-center justify-center text-2xl z-50" 
@@ -349,7 +412,6 @@ export default function AppLayout() {
         </main>
       </div>
 
-      {/* Add fade-in animation */}
       <style>{`
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(10px); }

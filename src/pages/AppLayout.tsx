@@ -159,30 +159,53 @@ export default function AppLayout() {
   };
 
   const createComment = async () => {
-    if (!newComment.trim()) {
+    if (!newComment.trim() || !currentPost) {
       alert('Please enter a comment');
       return;
     }
 
-    if (!currentPost) return;
+    const tempId = -Date.now();
+    const optimisticComment: Comment = {
+      id: tempId,
+      post_id: currentPost.id,
+      text: newComment.trim(),
+      nickname: nickname,
+      created_at: new Date().toISOString(),
+    };
 
-    const { error } = await supabase
-      .from('comments')
-      .insert([{
-        post_id: currentPost.id,
-        text: newComment.trim(),
-        nickname: nickname
-      }]);
-
-    if (error) {
-      alert('Failed to post comment');
-      return;
-    }
-
+    // Add to UI immediately
+    setComments(prevComments => [...prevComments, optimisticComment]);
     setNewComment('');
     setShowCommentModal(false);
-    openPost(currentPost);
+
+    try {
+      const { data, error } = await supabase
+        .from('comments')
+        .insert([{
+          post_id: currentPost.id,
+          text: optimisticComment.text,
+          nickname: nickname
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      if (data) {
+        // Replace optimistic comment with the real one from the database
+        setComments(prevComments => prevComments.map(c => 
+          c.id === tempId ? data : c
+        ));
+      } else {
+         throw new Error("No data returned from insert operation.");
+      }
+    } catch (error) {
+        // Revert on error
+        alert('Failed to post comment. Please try again.');
+        setComments(prevComments => prevComments.filter(c => c.id !== tempId));
+    }
   };
+
 
   if (showNicknameModal) {
     return (

@@ -1,11 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabase';
 import { Community, Post } from '../types';
 import { timeAgo } from '../utils/timeAgo';
 
 export default function AppLayout() {
-  const navigate = useNavigate();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const realtimeChannelRef = useRef<any>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -51,31 +49,28 @@ export default function AppLayout() {
       return;
     }
 
-    console.log('🔴 Setting up real-time...');
-    
     const channel = supabase
       .channel(`community-${currentCommunity.id}-${Date.now()}`)
       .on(
         'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'posts',
-          filter: `community_id=eq.${currentCommunity.id}`
-        },
+        { event: 'INSERT', schema: 'public', table: 'posts', filter: `community_id=eq.${currentCommunity.id}` },
         (payload) => {
-          console.log('🟢 NEW MESSAGE:', payload.new);
           const newPost = payload.new as Post;
           setMessages((prev) => {
             const exists = prev.some(m => m.id === newPost.id);
-            if (exists) return prev;
-            return [...prev, newPost];
+            return exists ? prev : [...prev, newPost];
           });
         }
       )
-      .subscribe((status) => {
-        console.log('📡 Real-time status:', status);
-      });
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'posts', filter: `community_id=eq.${currentCommunity.id}` },
+        (payload) => {
+          const deletedPost = payload.old as Post;
+          setMessages((prev) => prev.filter(m => m.id !== deletedPost.id));
+        }
+      )
+      .subscribe();
 
     realtimeChannelRef.current = channel;
 
@@ -177,12 +172,31 @@ export default function AppLayout() {
       .single();
 
     if (error) {
-      console.error('❌ Error:', error);
       alert('Failed to send message');
       setMessages(prev => prev.filter(m => m.id !== tempId));
     } else {
-      console.log('✅ Sent:', data);
       setMessages(prev => prev.map(m => m.id === tempId ? data : m));
+    }
+  };
+
+  const deleteMessage = async (messageId: string, messageNickname: string) => {
+    if (messageNickname !== nickname) {
+      alert('You can only delete your own messages!');
+      return;
+    }
+
+    if (!confirm('Delete this message?')) return;
+
+    setMessages(prev => prev.filter(m => m.id !== messageId));
+
+    const { error } = await supabase.from('posts').delete().eq('id', messageId);
+
+    if (error) {
+      alert('Failed to delete message');
+      if (currentCommunity) {
+        const { data } = await supabase.from('posts').select('*').eq('community_id', currentCommunity.id).order('created_at', { ascending: true });
+        setMessages(data || []);
+      }
     }
   };
 
@@ -246,7 +260,7 @@ export default function AppLayout() {
       <div className="flex flex-1 relative overflow-hidden">
         {sidebarOpen && <div className="fixed inset-0 bg-black/50 z-20 md:hidden" onClick={() => setSidebarOpen(false)} />}
         
-        <aside className={`fixed md:static w-64 bg-[#1e293b] border-r border-gray-800 h-[calc(100vh-73px)] p-4 z-30 transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
+        <aside className={`fixed md:static w-64 bg-[#1e293b] border-r border-gray-800 min-h-screen p-4 z-30 transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
           <button onClick={goHome} className={`w-full px-4 py-3 rounded-lg mb-2 font-medium transition flex items-center gap-3 ${view === 'communities' ? 'bg-green-600 text-white' : 'bg-transparent text-gray-400 hover:bg-gray-800'}`}>
             <span>🏘️</span> Communities
           </button>
@@ -306,10 +320,21 @@ export default function AppLayout() {
                   <div className="text-center py-12 text-gray-500">No messages yet. Start the conversation!</div>
                 ) : (
                   messages.map((message, idx) => (
-                    <div key={message.id || idx} className="bg-[#1e293b] p-4 rounded-xl border border-gray-800 animate-fadeIn w-full">
+                    <div key={message.id || idx} className="bg-[#1e293b] p-4 rounded-xl border border-gray-800 animate-fadeIn w-full relative group">
                       <div className="flex items-start justify-between mb-2 gap-2 flex-wrap">
                         <span className="font-semibold text-green-400">@{message.nickname}</span>
-                        <span className="text-xs text-gray-500">{timeAgo(message.created_at)}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-gray-500">{timeAgo(message.created_at)}</span>
+                          {message.nickname === nickname && (
+                            <button
+                              onClick={() => deleteMessage(message.id, message.nickname)}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-400 text-sm"
+                              title="Delete message"
+                            >
+                              🗑️
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <p className="text-sm md:text-base text-gray-300 whitespace-pre-wrap break-words w-full overflow-hidden">{message.content}</p>
                     </div>

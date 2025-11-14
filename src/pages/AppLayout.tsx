@@ -362,7 +362,7 @@ export default function AppLayout() {
             </div>
           )}
 
-          {/* Community View */}
+          {/* Community View - ONLY THREAD LIST */}
           {view === 'community' && currentCommunity && (
             <div>
               <button
@@ -371,13 +371,17 @@ export default function AppLayout() {
               >
                 ← Back to Communities
               </button>
+              
               <h2 className="text-2xl md:text-3xl font-bold mb-2">{currentCommunity.name}</h2>
               <p className="text-sm md:text-base text-gray-400 mb-8">{currentCommunity.description}</p>
 
               <h3 className="text-lg md:text-xl font-semibold mb-4">All Threads</h3>
               <div className="space-y-4">
                 {posts.length === 0 ? (
-                  <div className="text-center py-20 text-gray-500">No threads yet. Be the first to post!</div>
+                  <div className="text-center py-20 text-gray-500">
+                    <p className="text-lg mb-2">No threads yet</p>
+                    <p className="text-sm">Go to "Create Community" to add threads</p>
+                  </div>
                 ) : (
                   posts.map((post) => (
                     <div
@@ -385,7 +389,7 @@ export default function AppLayout() {
                       onClick={() => openPost(post)}
                       className="bg-[#1e293b] p-4 md:p-6 rounded-xl cursor-pointer hover:bg-[#2d3d52] transition border border-gray-800"
                     >
-                      <h3 className="text-base md:text-lg font-semibold mb-2">{post.title}</h3>
+                      <h3 className="text-base md:text-lg font-semibold mb-2 text-white">{post.title}</h3>
                       <p className="text-sm md:text-base text-gray-400 mb-3 line-clamp-2">{post.content}</p>
                       <div className="text-xs md:text-sm text-gray-500">
                         by @{post.nickname} • {post.commentsCount || 0} comments • {timeAgo(post.created_at)}
@@ -397,7 +401,7 @@ export default function AppLayout() {
             </div>
           )}
 
-          {/* Post View */}
+          {/* Post View - WITH FLOATING COMMENT BUTTON */}
           {view === 'post' && currentPost && (
             <div>
               <button
@@ -432,10 +436,11 @@ export default function AppLayout() {
                 )}
               </div>
 
-              {/* Floating Comment Button */}
+              {/* FLOATING COMMENT BUTTON */}
               <button
                 onClick={() => setShowCommentModal(true)}
                 className="fixed bottom-6 right-6 bg-green-600 hover:bg-green-700 text-white p-4 rounded-full shadow-lg transition-all hover:scale-110 z-40"
+                title="Add Comment"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />

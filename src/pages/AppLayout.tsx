@@ -2,28 +2,28 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../services/supabase';
 import { Community, Post } from '../types';
 import { timeAgo } from '../utils/timeAgo';
+import { requestNotificationPermission, saveFCMToken } from '../services/notifications';
 
 export default function AppLayout() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const realtimeChannelRef = useRef<any>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
+  
   const [nickname, setNickname] = useState<string>('');
   const [showNicknameModal, setShowNicknameModal] = useState(false);
   const [nicknameInput, setNicknameInput] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-
+  
   const [view, setView] = useState<'communities' | 'chat' | 'create'>('communities');
   const [communities, setCommunities] = useState<Community[]>([]);
   const [joinedCommunities, setJoinedCommunities] = useState<string[]>([]);
   const [currentCommunity, setCurrentCommunity] = useState<Community | null>(null);
   const [messages, setMessages] = useState<Post[]>([]);
+
   const [newCommunityName, setNewCommunityName] = useState('');
   const [newCommunityDesc, setNewCommunityDesc] = useState('');
   const [newMessage, setNewMessage] = useState('');
-  const [requestNotificationPermission, setRequestNotificationPermission] = useState<any>(null);
-  const [saveFCMToken, setSaveFCMToken] = useState<any>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -45,25 +45,12 @@ export default function AppLayout() {
     }
   }, [nickname]);
 
-  useEffect(() => {
-    async function loadNotifications() {
-      try {
-        const notifs = await import('../services/notifications');
-        setRequestNotificationPermission(() => notifs.requestNotificationPermission);
-        setSaveFCMToken(() => notifs.saveFCMToken);
-      } catch (e) {
-        console.log('Notifications not available yet');
-      }
-    }
-    loadNotifications();
-  }, []);
-
   const loadJoinedCommunities = async () => {
     const { data } = await supabase
       .from('community_members')
       .select('community_id')
       .eq('user_nickname', nickname);
-
+    
     if (data) {
       setJoinedCommunities(data.map(m => m.community_id));
     }
@@ -77,6 +64,7 @@ export default function AppLayout() {
       }
       return;
     }
+
     const channel = supabase
       .channel(`community-${currentCommunity.id}-${Date.now()}`)
       .on(
@@ -99,7 +87,9 @@ export default function AppLayout() {
         }
       )
       .subscribe();
+
     realtimeChannelRef.current = channel;
+
     return () => {
       if (realtimeChannelRef.current) {
         supabase.removeChannel(realtimeChannelRef.current);
@@ -168,7 +158,7 @@ export default function AppLayout() {
 
   const sendMessage = async () => {
     if (!newMessage.trim() || !currentCommunity) return;
-
+    
     const tempId = `temp-${Date.now()}`;
     const optimisticMsg: Post = {
       id: tempId,
@@ -178,12 +168,14 @@ export default function AppLayout() {
       nickname: nickname,
       created_at: new Date().toISOString()
     };
+
     setMessages(prev => [...prev, optimisticMsg]);
     setNewMessage('');
-
+    
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
+
     const { data, error } = await supabase
       .from('posts')
       .insert([{
@@ -194,6 +186,7 @@ export default function AppLayout() {
       }])
       .select()
       .single();
+
     if (error) {
       alert('Failed to send message');
       setMessages(prev => prev.filter(m => m.id !== tempId));
@@ -207,9 +200,13 @@ export default function AppLayout() {
       alert('You can only delete your own messages!');
       return;
     }
+
     if (!confirm('Delete this message?')) return;
+
     setMessages(prev => prev.filter(m => m.id !== messageId));
+
     const { error } = await supabase.from('posts').delete().eq('id', messageId);
+
     if (error) {
       alert('Failed to delete message');
       if (currentCommunity) {
@@ -230,7 +227,7 @@ export default function AppLayout() {
       const { error } = await supabase
         .from('community_members')
         .insert([{ community_id: communityId, user_nickname: nickname }]);
-
+      
       if (error) {
         if (error.code === '23505') {
           alert('You already joined this community!');
@@ -239,17 +236,14 @@ export default function AppLayout() {
         }
         return;
       }
-
+      
       setJoinedCommunities(prev => [...prev, communityId]);
-
-      if (requestNotificationPermission && saveFCMToken) {
-        const fcmToken = await requestNotificationPermission(nickname);
-        if (fcmToken) {
-          await saveFCMToken(communityId, nickname, fcmToken);
-          alert('✅ Joined! Notifications enabled.');
-        } else {
-          alert('✅ Joined successfully!');
-        }
+      
+      // Try to get notification permission
+      const fcmToken = await requestNotificationPermission(nickname);
+      if (fcmToken) {
+        await saveFCMToken(communityId, nickname, fcmToken);
+        alert('✅ Joined! Notifications enabled.');
       } else {
         alert('✅ Joined successfully!');
       }
@@ -259,7 +253,7 @@ export default function AppLayout() {
     }
   };
 
-  const filteredCommunities = communities.filter(c =>
+  const filteredCommunities = communities.filter(c => 
     c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     c.description.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -309,9 +303,10 @@ export default function AppLayout() {
           </div>
         </div>
       </header>
+
       <div className="flex flex-1 relative overflow-hidden">
         {sidebarOpen && <div className="fixed inset-0 bg-black/50 z-20 md:hidden" onClick={() => setSidebarOpen(false)} />}
-
+        
         <aside className={`fixed md:static w-64 bg-[#1e293b] border-r border-gray-800 min-h-screen p-4 z-30 transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
           <button onClick={goHome} className={`w-full px-4 py-3 rounded-lg mb-2 font-medium transition flex items-center gap-3 ${view === 'communities' ? 'bg-green-600 text-white' : 'bg-transparent text-gray-400 hover:bg-gray-800'}`}>
             <span>🏘️</span> Communities
@@ -320,6 +315,7 @@ export default function AppLayout() {
             <span>➕</span> Create Community
           </button>
         </aside>
+
         <main className="flex-1 flex flex-col overflow-hidden">
           {view === 'communities' && (
             <div className="p-4 md:p-8 overflow-y-auto">
@@ -372,6 +368,7 @@ export default function AppLayout() {
               </div>
             </div>
           )}
+
           {view === 'chat' && currentCommunity && (
             <div className="flex flex-col h-full">
               <div className="p-4 md:p-6 border-b border-gray-800 shrink-0">
@@ -381,7 +378,7 @@ export default function AppLayout() {
                 <h2 className="text-xl md:text-2xl font-bold">{currentCommunity.name}</h2>
                 <p className="text-sm text-gray-400 mt-1">{currentCommunity.description}</p>
               </div>
-
+              
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {messages.length === 0 ? (
                   <div className="text-center py-12 text-gray-500">No messages yet. Start the conversation!</div>
@@ -409,7 +406,7 @@ export default function AppLayout() {
                 )}
                 <div ref={messagesEndRef} />
               </div>
-
+              
               <div className="border-t border-gray-800 bg-[#1e293b] p-4 shrink-0">
                 <div className="flex gap-3 items-end max-w-4xl mx-auto">
                   <textarea
@@ -428,7 +425,7 @@ export default function AppLayout() {
                     rows={1}
                     style={{ maxHeight: '120px' }}
                   />
-                  <button
+                  <button 
                     onClick={sendMessage}
                     disabled={!newMessage.trim()}
                     className="px-5 py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition"
@@ -439,6 +436,7 @@ export default function AppLayout() {
               </div>
             </div>
           )}
+
           {view === 'create' && (
             <div className="p-4 md:p-8 overflow-y-auto">
               <div className="max-w-2xl mx-auto">
@@ -469,6 +467,7 @@ export default function AppLayout() {
           )}
         </main>
       </div>
+
       <style>{`
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(10px); }
@@ -480,4 +479,4 @@ export default function AppLayout() {
       `}</style>
     </div>
   );
-} 
+}

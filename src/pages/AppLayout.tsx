@@ -2,7 +2,18 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../services/supabase';
 import { Community, Post } from '../types';
 import { timeAgo } from '../utils/timeAgo';
-import { requestNotificationPermission, saveFCMToken } from '../services/notifications';
+
+// ADD THIS IMPORT (only if you created the notifications.ts file)
+// If you haven't created it yet, skip notifications for now
+let requestNotificationPermission: any = null;
+let saveFCMToken: any = null;
+try {
+  const notifs = await import('../services/notifications');
+  requestNotificationPermission = notifs.requestNotificationPermission;
+  saveFCMToken = notifs.saveFCMToken;
+} catch (e) {
+  console.log('Notifications not available yet');
+}
 
 export default function AppLayout() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -17,7 +28,7 @@ export default function AppLayout() {
   
   const [view, setView] = useState<'communities' | 'chat' | 'create'>('communities');
   const [communities, setCommunities] = useState<Community[]>([]);
-  const [joinedCommunities, setJoinedCommunities] = useState<string[]>([]);
+  const [joinedCommunities, setJoinedCommunities] = useState<string[]>([]); // ADDED
   const [currentCommunity, setCurrentCommunity] = useState<Community | null>(null);
   const [messages, setMessages] = useState<Post[]>([]);
 
@@ -41,10 +52,11 @@ export default function AppLayout() {
   useEffect(() => {
     if (nickname) {
       loadCommunities();
-      loadJoinedCommunities();
+      loadJoinedCommunities(); // ADDED
     }
   }, [nickname]);
 
+  // ADDED THIS FUNCTION
   const loadJoinedCommunities = async () => {
     const { data } = await supabase
       .from('community_members')
@@ -222,6 +234,7 @@ export default function AppLayout() {
     e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
   };
 
+  // ADDED THIS FUNCTION
   const handleJoinCommunity = async (communityId: string) => {
     try {
       const { error } = await supabase
@@ -240,10 +253,14 @@ export default function AppLayout() {
       setJoinedCommunities(prev => [...prev, communityId]);
       
       // Try to get notification permission
-      const fcmToken = await requestNotificationPermission(nickname);
-      if (fcmToken) {
-        await saveFCMToken(communityId, nickname, fcmToken);
-        alert('✅ Joined! Notifications enabled.');
+      if (requestNotificationPermission && saveFCMToken) {
+        const fcmToken = await requestNotificationPermission(nickname);
+        if (fcmToken) {
+          await saveFCMToken(communityId, nickname, fcmToken);
+          alert('✅ Joined! Notifications enabled.');
+        } else {
+          alert('✅ Joined successfully!');
+        }
       } else {
         alert('✅ Joined successfully!');
       }
@@ -346,6 +363,7 @@ export default function AppLayout() {
                           <p className="text-sm md:text-base text-gray-400 mb-3">{community.description}</p>
                           <div className="text-xs md:text-sm text-gray-500">{community.postsCount || 0} messages</div>
                         </div>
+                        {/* ADDED JOIN/OPEN BUTTON */}
                         {!joinedCommunities.includes(community.id) ? (
                           <button
                             onClick={() => handleJoinCommunity(community.id)}
@@ -460,7 +478,7 @@ export default function AppLayout() {
                   />
                   <button onClick={createCommunity} className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl transition">
                     Create Community
-                  </button>
+                  />
                 </div>
               </div>
             </div>

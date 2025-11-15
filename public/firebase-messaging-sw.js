@@ -2,12 +2,13 @@ importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'
 importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-compat.js');
 
 firebase.initializeApp({
-  apiKey: "PASTE_YOUR_API_KEY",
-  authDomain: "PASTE_YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "PASTE_YOUR_PROJECT_ID",
-  storageBucket: "PASTE_YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "PASTE_YOUR_MESSAGING_SENDER_ID",
-  appId: "PASTE_YOUR_APP_ID"
+  apiKey: "AIzaSyBqukkcmadiPtKQpYmXvj2QmPyEl_4Oztg",
+  authDomain: "campconnect-d428f.firebaseapp.com",
+  projectId: "campconnect-d428f",
+  storageBucket: "campconnect-d428f.firebasestorage.app",
+  messagingSenderId: "582377072400",
+  appId: "1:582377072400:web:76bef15d92a5bde8572795"
+
 });
 
 const messaging = firebase.messaging();

@@ -477,7 +477,8 @@ export default function AppLayout() {
                     rows={3}
                   />
                   <button onClick={createCommunity} className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl transition">
-                    Create Community
+  Create Community
+</button>
                   />
                 </div>
               </div>

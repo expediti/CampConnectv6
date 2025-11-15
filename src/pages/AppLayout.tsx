@@ -2,7 +2,18 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../services/supabase';
 import { Community, Post } from '../types';
 import { timeAgo } from '../utils/timeAgo';
-import { requestNotificationPermission, saveFCMToken, setupForegroundNotifications } from '../services/notifications';
+
+// ADD THIS IMPORT (only if you created the notifications.ts file)
+// If you haven't created it yet, skip notifications for now
+let requestNotificationPermission: any = null;
+let saveFCMToken: any = null;
+try {
+  const notifs = await import('../services/notifications');
+  requestNotificationPermission = notifs.requestNotificationPermission;
+  saveFCMToken = notifs.saveFCMToken;
+} catch (e) {
+  console.log('Notifications not available yet');
+}
 
 export default function AppLayout() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -15,12 +26,11 @@ export default function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   
-  const [view, setView] = useState<'communities' | 'chat' | 'create' | 'discover'>('communities');
+  const [view, setView] = useState<'communities' | 'chat' | 'create'>('communities');
   const [communities, setCommunities] = useState<Community[]>([]);
-  const [joinedCommunities, setJoinedCommunities] = useState<string[]>([]);
+  const [joinedCommunities, setJoinedCommunities] = useState<string[]>([]); // ADDED
   const [currentCommunity, setCurrentCommunity] = useState<Community | null>(null);
   const [messages, setMessages] = useState<Post[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
 
   const [newCommunityName, setNewCommunityName] = useState('');
   const [newCommunityDesc, setNewCommunityDesc] = useState('');
@@ -42,10 +52,21 @@ export default function AppLayout() {
   useEffect(() => {
     if (nickname) {
       loadCommunities();
-      loadJoinedCommunities();
-      setupNotifications();
+      loadJoinedCommunities(); // ADDED
     }
   }, [nickname]);
+
+  // ADDED THIS FUNCTION
+  const loadJoinedCommunities = async () => {
+    const { data } = await supabase
+      .from('community_members')
+      .select('community_id')
+      .eq('user_nickname', nickname);
+    
+    if (data) {
+      setJoinedCommunities(data.map(m => m.community_id));
+    }
+  };
 
   useEffect(() => {
     if (!currentCommunity || view !== 'chat') {
@@ -89,29 +110,6 @@ export default function AppLayout() {
     };
   }, [currentCommunity, view]);
 
-  const setupNotifications = () => {
-    // Listen for new messages in real-time for notification count
-    const channel = supabase
-      .channel('all-posts-notifications')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'posts' },
-        (payload) => {
-          const newPost = payload.new as Post;
-          // Only count if in joined community and not from current user
-          if (joinedCommunities.includes(newPost.community_id) && newPost.nickname !== nickname) {
-            setUnreadCount(prev => prev + 1);
-          }
-        }
-      )
-      .subscribe();
-
-    // Setup foreground notifications
-    setupForegroundNotifications((payload) => {
-      console.log('Notification received:', payload);
-    });
-  };
-
   const handleSetNickname = () => {
     const trimmed = nicknameInput.trim();
     if (!trimmed || trimmed.length < 3 || trimmed.length > 20) {
@@ -123,21 +121,9 @@ export default function AppLayout() {
     setShowNicknameModal(false);
   };
 
-  const loadJoinedCommunities = async () => {
-    const { data } = await supabase
-      .from('community_members')
-      .select('community_id')
-      .eq('user_nickname', nickname);
-    
-    if (data) {
-      setJoinedCommunities(data.map(m => m.community_id));
-    }
-  };
-
   const loadCommunities = async () => {
     const { data } = await supabase.from('communities').select('*').order('created_at', { ascending: false });
     if (!data) return;
-    
     const communitiesWithCounts = await Promise.all(
       data.map(async (community) => {
         const { count } = await supabase.from('posts').select('*', { count: 'exact', head: true }).eq('community_id', community.id);
@@ -147,44 +133,12 @@ export default function AppLayout() {
     setCommunities(communitiesWithCounts);
   };
 
-  const joinCommunity = async (communityId: string) => {
-    const { error } = await supabase
-      .from('community_members')
-      .insert([{ community_id: communityId, user_nickname: nickname }]);
-    
-    if (!error) {
-      setJoinedCommunities(prev => [...prev, communityId]);
-      
-      // Request notification permission and save FCM token
-      const fcmToken = await requestNotificationPermission(nickname);
-      if (fcmToken) {
-        await saveFCMToken(communityId, nickname, fcmToken);
-        alert('✅ Notifications enabled! You will receive alerts even when the app is closed.');
-      } else {
-        alert('⚠️ Joined successfully! Enable notifications in browser settings to receive alerts.');
-      }
-    }
-  };
-
-  const leaveCommunity = async (communityId: string) => {
-    const { error } = await supabase
-      .from('community_members')
-      .delete()
-      .eq('community_id', communityId)
-      .eq('user_nickname', nickname);
-    
-    if (!error) {
-      setJoinedCommunities(prev => prev.filter(id => id !== communityId));
-    }
-  };
-
   const goHome = () => {
     setView('communities');
     setCurrentCommunity(null);
     setMessages([]);
     setNewMessage('');
     setSidebarOpen(false);
-    setUnreadCount(0);
     loadCommunities();
   };
 
@@ -201,21 +155,14 @@ export default function AppLayout() {
       alert('Please enter a community name');
       return;
     }
-    const { data, error } = await supabase.from('communities').insert([{
+    const { error } = await supabase.from('communities').insert([{
       name: newCommunityName.trim(),
       description: newCommunityDesc.trim() || 'No description'
-    }]).select().single();
-    
+    }]);
     if (error) {
       alert('Failed to create community');
       return;
     }
-    
-    // Auto-join the community you created
-    if (data) {
-      await joinCommunity(data.id);
-    }
-    
     setNewCommunityName('');
     setNewCommunityDesc('');
     goHome();
@@ -287,14 +234,43 @@ export default function AppLayout() {
     e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
   };
 
-  const myCommunitiesFiltered = communities
-    .filter(c => joinedCommunities.includes(c.id))
-    .filter(c => 
-      c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.description.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+  // ADDED THIS FUNCTION
+  const handleJoinCommunity = async (communityId: string) => {
+    try {
+      const { error } = await supabase
+        .from('community_members')
+        .insert([{ community_id: communityId, user_nickname: nickname }]);
+      
+      if (error) {
+        if (error.code === '23505') {
+          alert('You already joined this community!');
+        } else {
+          alert('Failed to join community');
+        }
+        return;
+      }
+      
+      setJoinedCommunities(prev => [...prev, communityId]);
+      
+      // Try to get notification permission
+      if (requestNotificationPermission && saveFCMToken) {
+        const fcmToken = await requestNotificationPermission(nickname);
+        if (fcmToken) {
+          await saveFCMToken(communityId, nickname, fcmToken);
+          alert('✅ Joined! Notifications enabled.');
+        } else {
+          alert('✅ Joined successfully!');
+        }
+      } else {
+        alert('✅ Joined successfully!');
+      }
+    } catch (err) {
+      console.error('Join error:', err);
+      alert('Error joining community');
+    }
+  };
 
-  const allCommunitiesFiltered = communities.filter(c => 
+  const filteredCommunities = communities.filter(c => 
     c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     c.description.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -340,12 +316,6 @@ export default function AppLayout() {
               placeholder="Search..."
               className="hidden md:block w-48 px-4 py-2 bg-[#0f172a] border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:border-green-500"
             />
-            {unreadCount > 0 && (
-              <div className="relative">
-                <span className="text-2xl cursor-pointer">🔔</span>
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">{unreadCount}</span>
-              </div>
-            )}
             <div className="text-xs md:text-sm text-gray-400 bg-[#0f172a] px-3 py-1.5 rounded-lg">@{nickname}</div>
           </div>
         </div>
@@ -355,11 +325,8 @@ export default function AppLayout() {
         {sidebarOpen && <div className="fixed inset-0 bg-black/50 z-20 md:hidden" onClick={() => setSidebarOpen(false)} />}
         
         <aside className={`fixed md:static w-64 bg-[#1e293b] border-r border-gray-800 min-h-screen p-4 z-30 transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
-          <button onClick={() => { setView('communities'); setSidebarOpen(false); }} className={`w-full px-4 py-3 rounded-lg mb-2 font-medium transition flex items-center gap-3 ${view === 'communities' ? 'bg-green-600 text-white' : 'bg-transparent text-gray-400 hover:bg-gray-800'}`}>
-            <span>🏘️</span> My Communities
-          </button>
-          <button onClick={() => { setView('discover'); setSidebarOpen(false); }} className={`w-full px-4 py-3 rounded-lg mb-2 font-medium transition flex items-center gap-3 ${view === 'discover' ? 'bg-green-600 text-white' : 'bg-transparent text-gray-400 hover:bg-gray-800'}`}>
-            <span>🔍</span> Discover
+          <button onClick={goHome} className={`w-full px-4 py-3 rounded-lg mb-2 font-medium transition flex items-center gap-3 ${view === 'communities' ? 'bg-green-600 text-white' : 'bg-transparent text-gray-400 hover:bg-gray-800'}`}>
+            <span>🏘️</span> Communities
           </button>
           <button onClick={() => { setView('create'); setSidebarOpen(false); }} className={`w-full px-4 py-3 rounded-lg font-medium transition flex items-center gap-3 ${view === 'create' ? 'bg-green-600 text-white' : 'bg-transparent text-gray-400 hover:bg-gray-800'}`}>
             <span>➕</span> Create Community
@@ -371,94 +338,49 @@ export default function AppLayout() {
             <div className="p-4 md:p-8 overflow-y-auto">
               <div className="max-w-4xl mx-auto w-full">
                 <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-2xl md:text-3xl font-bold">My Communities</h2>
+                  <h2 className="text-2xl md:text-3xl font-bold">All Communities</h2>
                 </div>
                 <div className="md:hidden mb-4">
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search..."
+                    placeholder="Search communities..."
                     className="w-full px-4 py-2 bg-[#1e293b] border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:border-green-500"
                   />
                 </div>
                 <div className="space-y-4">
-                  {myCommunitiesFiltered.length === 0 ? (
+                  {filteredCommunities.length === 0 ? (
                     <div className="text-center py-20 text-gray-500">
-                      <p className="text-lg mb-2">You haven't joined any communities yet</p>
-                      <p className="text-sm">Check out "Discover" to find communities!</p>
+                      <p className="text-lg mb-2">{searchQuery ? 'No communities found' : 'No communities yet'}</p>
+                      <p className="text-sm">{searchQuery ? 'Try a different search' : 'Create the first one!'}</p>
                     </div>
                   ) : (
-                    myCommunitiesFiltered.map((community) => (
+                    filteredCommunities.map((community) => (
                       <div key={community.id} className="bg-[#1e293b] p-4 md:p-6 rounded-xl border border-gray-800">
-                        <div onClick={() => openCommunity(community)} className="cursor-pointer">
+                        <div className="cursor-pointer" onClick={() => openCommunity(community)}>
                           <h3 className="text-lg md:text-xl font-semibold text-green-400 mb-2">{community.name}</h3>
                           <p className="text-sm md:text-base text-gray-400 mb-3">{community.description}</p>
                           <div className="text-xs md:text-sm text-gray-500">{community.postsCount || 0} messages</div>
                         </div>
-                        <button
-                          onClick={() => leaveCommunity(community.id)}
-                          className="mt-3 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg transition"
-                        >
-                          Leave
-                        </button>
+                        {/* ADDED JOIN/OPEN BUTTON */}
+                        {!joinedCommunities.includes(community.id) ? (
+                          <button
+                            onClick={() => handleJoinCommunity(community.id)}
+                            className="mt-3 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition"
+                          >
+                            Join
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => openCommunity(community)}
+                            className="mt-3 px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg transition"
+                          >
+                            Open
+                          </button>
+                        )}
                       </div>
                     ))
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {view === 'discover' && (
-            <div className="p-4 md:p-8 overflow-y-auto">
-              <div className="max-w-4xl mx-auto w-full">
-                <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-2xl md:text-3xl font-bold">Discover Communities</h2>
-                </div>
-                <div className="md:hidden mb-4">
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search..."
-                    className="w-full px-4 py-2 bg-[#1e293b] border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:border-green-500"
-                  />
-                </div>
-                <div className="space-y-4">
-                  {allCommunitiesFiltered.length === 0 ? (
-                    <div className="text-center py-20 text-gray-500">
-                      <p className="text-lg mb-2">No communities found</p>
-                      <p className="text-sm">Be the first to create one!</p>
-                    </div>
-                  ) : (
-                    allCommunitiesFiltered.map((community) => {
-                      const isJoined = joinedCommunities.includes(community.id);
-                      return (
-                        <div key={community.id} className="bg-[#1e293b] p-4 md:p-6 rounded-xl border border-gray-800">
-                          <h3 className="text-lg md:text-xl font-semibold text-green-400 mb-2">{community.name}</h3>
-                          <p className="text-sm md:text-base text-gray-400 mb-3">{community.description}</p>
-                          <div className="flex items-center justify-between">
-                            <div className="text-xs md:text-sm text-gray-500">{community.postsCount || 0} messages</div>
-                            {isJoined ? (
-                              <button
-                                onClick={() => openCommunity(community)}
-                                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg transition"
-                              >
-                                Open
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => joinCommunity(community.id)}
-                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition"
-                              >
-                                Join
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })
                   )}
                 </div>
               </div>
@@ -471,23 +393,8 @@ export default function AppLayout() {
                 <button onClick={goHome} className="mb-3 px-4 py-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition text-sm md:text-base flex items-center gap-2">
                   ← Back
                 </button>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-xl md:text-2xl font-bold">{currentCommunity.name}</h2>
-                    <p className="text-sm text-gray-400 mt-1">{currentCommunity.description}</p>
-                  </div>
-                  {joinedCommunities.includes(currentCommunity.id) && (
-                    <button
-                      onClick={() => {
-                        leaveCommunity(currentCommunity.id);
-                        goHome();
-                      }}
-                      className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg transition"
-                    >
-                      Leave
-                    </button>
-                  )}
-                </div>
+                <h2 className="text-xl md:text-2xl font-bold">{currentCommunity.name}</h2>
+                <p className="text-sm text-gray-400 mt-1">{currentCommunity.description}</p>
               </div>
               
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -571,7 +478,7 @@ export default function AppLayout() {
                   />
                   <button onClick={createCommunity} className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl transition">
                     Create Community
-                  </button>
+                  />
                 </div>
               </div>
             </div>

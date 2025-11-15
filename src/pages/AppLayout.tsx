@@ -480,4 +480,4 @@ export default function AppLayout() {
       `}</style>
     </div>
   );
-}
+} 
